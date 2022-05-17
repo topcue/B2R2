@@ -29,6 +29,12 @@ open B2R2.FrontEnd.BinFile
 open B2R2.FrontEnd.BinInterface
 open B2R2.RearEnd
 open B2R2.RearEnd.BinDump.DisasmLiftHelper
+open B2R2.RearEnd.BinDump.DiffCore
+open B2R2.RearEnd.BinDump.MyersDiff
+open B2R2.RearEnd.BinDump.HistogramDiff
+open B2R2.RearEnd.BinDump.DiffPrintHelper
+
+open OutString
 
 let [<Literal>] private toolName = "bindump"
 let [<Literal>] private usageTail = "<binary file(s) | -s hexstring>"

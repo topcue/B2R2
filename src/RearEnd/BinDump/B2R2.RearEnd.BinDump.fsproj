@@ -9,6 +9,10 @@
   <ItemGroup>
     <Compile Include="Cmd.fs" />
     <Compile Include="DisasmLiftHelper.fs" />
+    <Compile Include="DiffCore.fs" />
+    <Compile Include="MyersDiff.fs" />
+    <Compile Include="HistogramDiff.fs" />
+    <Compile Include="DiffPrintHelper.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
