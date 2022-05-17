@@ -58,6 +58,18 @@ type BinDumpOpts () =
   /// Show LowUIR or not?
   member val ShowLowUIR = false with get, set
 
+  /// Show diff or not?
+  member val ShowDiff = false with get, set
+
+  /// Input context size from command line.
+  member val ContextSize: int = 3 with get, set
+
+  /// Use myers diff algorithm
+  member val MyersDiff = false with get, set
+
+  /// Use histogram diff algorithm
+  member val HistogramDiff = false with get, set
+
   /// Show hexdump widely or not, 32 bytes (default 16 bytes)
   member val ShowWide = false with get, set
 
@@ -85,7 +97,7 @@ type BinDumpOpts () =
   /// "-i" or "--isa" option for specifying ISA.
   static member OptISA () =
     let cb opts (arg: string []) =
-      (BinDumpOpts.ToThis opts).ISA <- ISA.OfString arg.[0]
+      (BinDumpOpts.ToThis opts).ISA <- ISA.OfString arg[0]
       opts
     CmdOpts.New (descr = "Specify <ISA> (e.g., x86) from command line",
                  extra = 1, callback = cb, short = "-i", long = "--isa")
@@ -94,7 +106,7 @@ type BinDumpOpts () =
   static member OptBaseAddr () =
     let cb opts (arg: string []) =
       (BinDumpOpts.ToThis opts).BaseAddress <-
-        Some (Convert.ToUInt64 (arg.[0], 16))
+        Some (Convert.ToUInt64 (arg[0], 16))
       (BinDumpOpts.ToThis opts).ShowAddress <- true
       opts
     CmdOpts.New (descr = "Specify the base <address> in hex (default=0)",
@@ -113,7 +125,7 @@ type BinDumpOpts () =
   /// "-S" or "--section" for displaying contents of a specific section.
   static member OptDumpSection () =
     let cb opts (arg: string []) =
-      (BinDumpOpts.ToThis opts).InputSecName <- Some arg.[0]
+      (BinDumpOpts.ToThis opts).InputSecName <- Some arg[0]
       opts
     CmdOpts.New (
       descr = "Display the contents of a specific section",
@@ -122,7 +134,7 @@ type BinDumpOpts () =
   /// "-s" option for specifying an input hexstring.
   static member OptInputHexString () =
     let cb opts (arg: string []) =
-      (BinDumpOpts.ToThis opts).InputHexStr <- ByteArray.ofHexString arg.[0]
+      (BinDumpOpts.ToThis opts).InputHexStr <- ByteArray.ofHexString arg[0]
       opts
     CmdOpts.New (descr = "Specify an input <hexstring> from command line",
                  extra = 1, callback = cb, short = "-s")
@@ -131,7 +143,7 @@ type BinDumpOpts () =
   static member OptArchMode () =
     let cb opts (arg: string []) =
       (BinDumpOpts.ToThis opts).ArchOperationMode <-
-        ArchOperationMode.ofString arg.[0]
+        ArchOperationMode.ofString arg[0]
       opts
     CmdOpts.New (
       descr = "Specify <operation mode> (e.g., thumb/arm) from cmdline",
@@ -191,6 +203,34 @@ type BinDumpOpts () =
     CmdOpts.New (descr = "Turn off file format detection",
                  callback = cb, long = "--raw-binary")
 
+  static member OptShowDiff () =
+    let cb opts _ =
+      (BinDumpOpts.ToThis opts).ShowDiff <- true
+      opts
+    CmdOpts.New (descr = "Show diff of two files",
+                 callback = cb, long = "--diff")
+
+  static member OptContextSize () =
+    let cb opts (arg: string[]) =
+      (BinDumpOpts.ToThis opts).ContextSize <- int arg[0]
+      opts
+    CmdOpts.New (descr = "Specify context size of unified diff from cmdline",
+                 extra = 1, callback = cb, long = "--context")
+
+  static member OptMyersDiff () =
+    let cb opts _ =
+      (BinDumpOpts.ToThis opts).MyersDiff <- true
+      opts
+    CmdOpts.New (descr = "Use myers diff algorithm",
+                 callback = cb, long = "--myers")
+
+  static member OptHistogramDiff () =
+    let cb opts _ =
+      (BinDumpOpts.ToThis opts).HistogramDiff <- true
+      opts
+    CmdOpts.New (descr = "Use histogram diff algorithm",
+                 callback = cb, long = "--histogram")
+
 [<RequireQualifiedAccess>]
 module Cmd =
   let spec: BinDumpOpts FsOptParse.Option list =
@@ -221,12 +261,16 @@ module Cmd =
       BinDumpOpts.OptShowWide ()
       BinDumpOpts.OptShowColor ()
       BinDumpOpts.OptShowLowUIR ()
+      BinDumpOpts.OptShowDiff ()
 
       CmdOpts.New (descr = "", dummy = true)
       CmdOpts.New (descr = "[Optional Configuration]", dummy = true)
       CmdOpts.New (descr = "", dummy = true)
 
       BinDumpOpts.OptTransOptimization ()
+      BinDumpOpts.OptContextSize ()
+      BinDumpOpts.OptMyersDiff ()
+      BinDumpOpts.OptHistogramDiff ()
 
       CmdOpts.New (descr = "", dummy = true) ]
 
