@@ -129,6 +129,16 @@ let convertToDisasmStr (words: AsmWord []) =
     | _ -> Some [ NoColor, word.AsmWordValue ])
   |> List.concat
 
+let ConvertToDisasmNoColorStr (words: AsmWord []) =
+  words
+  |> Array.choose (fun word ->
+    match word.AsmWordKind with
+    | AsmWordKind.Address -> None
+    | AsmWordKind.Mnemonic -> Some word.AsmWordValue
+    | AsmWordKind.Variable -> Some word.AsmWordValue
+    | AsmWordKind.Value -> Some word.AsmWordValue
+    | _ -> Some word.AsmWordValue)
+
 let printColorDisasm words wordSize addr bytes cfg =
   out.Flush ()
   let hexStr = convertToHexStr bytes

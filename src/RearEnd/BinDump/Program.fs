@@ -200,13 +200,24 @@ let dumpHexStringMode (opts: BinDumpOpts) =
   printer.Print bp
   out.PrintLine ()
 
+let diffFileMode (files: string list) (opts: BinDumpOpts) =
+  ()
+  // match List.partition System.IO.File.Exists files with
+  // | [], [] ->
+  //   Printer.printErrorToConsole "Files must be given."
+  //   CmdOpts.PrintUsage ToolName UsageTail Cmd.spec
+  // | files, [] -> files |> diffBinaries opts
+  // | _, errs ->
+  //   Printer.printErrorToConsole ("File(s) " + errs.ToString() + " not found!")
+
 let private dump files (opts: BinDumpOpts) =
 #if DEBUG
   let sw = System.Diagnostics.Stopwatch.StartNew ()
 #endif
   CmdOpts.SanitizeRestArgs files
   try
-    if Array.isEmpty opts.InputHexStr then dumpFileMode files opts
+    if opts.ShowDiff then diffFileMode files opts
+    elif Array.isEmpty opts.InputHexStr then dumpFileMode files opts
     else dumpHexStringMode opts
   finally
     out.Flush ()
