@@ -174,7 +174,7 @@ If you plan to use B2R2 in your own research. Please consider citing our
 ```bibtex
 @INPROCEEDINGS{jung:bar:2019,
   author = {Minkyu Jung and Soomin Kim and HyungSeok Han and Jaeseung Choi and Sang Kil Cha},
-  title = {{B2R2}: Building an Efficient Front-End for Binary Analysis},
+  title = {% raw %}{{B2R2}: Building an Efficient Front-End for Binary Analysis}{% endraw %},
   booktitle = {Proceedings of the NDSS Workshop on Binary Analysis Research},
   year = 2019
 }
