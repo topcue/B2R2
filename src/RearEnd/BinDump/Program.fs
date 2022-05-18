@@ -221,11 +221,11 @@ let private myDumpHex (opts: BinDumpOpts) (sec: Section) hdl =
     [| HexStr(""); HexStr("NOBITS section.") |]
   else buildHexdump opts sec hdl
 
-let private diffTwoLines linesA linesB diffAlgo prepareAlgo =
+let private diffTwoLines linesA linesB diff prepare =
   let rchgA, rchgB =
     (linesA, linesB)
-    ||> prepareAlgo
-    ||> diffAlgo
+    ||> prepare
+    ||> diff
   { LengthA = Array.length linesA
     LengthB = Array.length linesB
     LinesA = linesA
@@ -236,13 +236,13 @@ let private diffTwoLines linesA linesB diffAlgo prepareAlgo =
 let private diffAndPrintBinaries detailsA detailsB (opts: BinDumpOpts) =
   let linesA = detailsToStr detailsA
   let linesB = detailsToStr detailsB
-  let prepareAlgo =
-    if opts.MyersDiff then prepareMyersFamily else prepareHistogramFamily
-  let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
+  let prepare, diff =
+    if opts.MyersDiff then prepareMyersFamily, myersDiff
+    else prepareHistogramFamily, histogramDiff
 
-  let diffResult = diffTwoLines linesA linesB diffAlgo prepareAlgo
+  let diffResult = diffTwoLines linesA linesB diff prepare
   let details = { A = detailsA; B = detailsB }
-  printDiffResult diffResult details diffAlgo prepareAlgo
+  printDiffResult diffResult details diff prepare
 
 let private getDetailsFromSection sec hdl builder (opts: BinDumpOpts) =
   match sec.Kind with
@@ -272,13 +272,12 @@ let diffBinaryFiles hdlA hdlB cfg opts =
 let diffFiles (opts: BinDumpOpts) (filepaths: string list) =
   let linesA = readFile filepaths[0]
   let linesB = readFile filepaths[1]
-  let prepareAlgo =
-    if opts.MyersDiff then prepareMyersFamily else prepareHistogramFamily
-  let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
-  let result = diffTwoLines linesA linesB diffAlgo prepareAlgo
+  let prepare, diff =
+    if opts.MyersDiff then prepareMyersFamily, myersDiff
+    else prepareHistogramFamily, histogramDiff
+  let result = diffTwoLines linesA linesB diff prepare
 
-  printDiffResult' result diffAlgo prepareAlgo
-  ()
+  printDiffResult' result diff prepare
 
 let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
   opts.ShowAddress <- true
