@@ -233,13 +233,12 @@ let private diffTwoLines linesA linesB diff prepare =
     RchgA = rchgA
     RchgB = rchgB }
 
-let private diffAndPrintBinaries detailsA detailsB (opts: BinDumpOpts) =
+let private diffBinarySection detailsA detailsB (opts: BinDumpOpts) =
   let linesA = detailsToStr detailsA
   let linesB = detailsToStr detailsB
   let prepare, diff =
     if opts.MyersDiff then prepareMyersFamily, myersDiff
     else prepareHistogramFamily, histogramDiff
-
   let diffResult = diffTwoLines linesA linesB diff prepare
   let details = { A = detailsA; B = detailsB }
   printDiffResult diffResult details diff prepare
@@ -255,7 +254,24 @@ let private getDetailsFromSection sec hdl builder (opts: BinDumpOpts) =
     if opts.OnlyDisasm then buildCodeOrTable builder sec
     else myDumpHex opts sec hdl
 
-let diffBinaryFiles hdlA hdlB cfg opts =
+let private diffForMetric detailsA detailsB (opts: BinDumpOpts) secName =
+  let linesA = detailsToStr detailsA
+  let linesB = detailsToStr detailsB
+  let prepare, diff =
+    if opts.MyersDiff then prepareMyersFamily, myersDiff
+    else prepareHistogramFamily, histogramDiff
+  let diffResult = diffTwoLines linesA linesB diff prepare
+
+  let NLD = diffResult.RchgA |> Array.filter (fun e -> e = true ) |> Array.length
+  let NLA = diffResult.RchgB |> Array.filter (fun e -> e = true ) |> Array.length
+  if NLA = 0 && NLD = 0 then ()
+  else
+    printfn "[*] Section: %s" secName
+    printfn "[*] LNA: %A" NLA
+    printfn "[*] LND: %A" NLD
+    printfn ""
+
+let diffBinWithHdl hdlA hdlB cfg (opts: BinDumpOpts) =
   let sectionsA = hdlA.FileInfo.GetSections ()
   let sectionsB = hdlB.FileInfo.GetSections ()
   let builderA = MyBuilder (hdlA, cfg) :> BinBuilder
@@ -263,13 +279,17 @@ let diffBinaryFiles hdlA hdlB cfg opts =
   (sectionsA, sectionsB)
   ||> Seq.iter2 (fun secA secB ->
     if secA.Size > 0UL && secB.Size > 0UL then
-      printDiffSectionsName secA.Name secB.Name
       let detailsA = getDetailsFromSection secA hdlA builderA opts
       let detailsB = getDetailsFromSection secB hdlB builderB opts
-      diffAndPrintBinaries detailsA detailsB opts
+      if opts.ShowDiff then
+        printDiffSectionsName secA.Name secB.Name
+        diffBinarySection detailsA detailsB opts
+      elif opts.MultipleDiff then
+        diffForMetric detailsA detailsB opts secA.Name
+
     else ())
 
-let diffFiles (opts: BinDumpOpts) (filepaths: string list) =
+let diffTextFile (opts: BinDumpOpts) (filepaths: string list) =
   let linesA = readFile filepaths[0]
   let linesB = readFile filepaths[1]
   let prepare, diff =
@@ -277,19 +297,24 @@ let diffFiles (opts: BinDumpOpts) (filepaths: string list) =
     else prepareHistogramFamily, histogramDiff
   let result = diffTwoLines linesA linesB diff prepare
 
-  printDiffResult' result diff prepare
+  if opts.ShowDiff then
+    printDiffResult' result diff prepare
+  elif opts.MultipleDiff then
+    printfn "[*] Multiple Diff"
 
-let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
+
+let diffBinaryFile (opts: BinDumpOpts) (filepaths: string list) =
   opts.ShowAddress <- true
   let hdlA = createBinHandleFromPath opts filepaths[0]
   let hdlB = createBinHandleFromPath opts filepaths[1]
   let cfg = getTableConfig hdlA opts.ShowLowUIR
-  printDiffFilesName hdlA.FileInfo.FilePath hdlB.FileInfo.FilePath
+  if not opts.MultipleDiff then
+    printDiffFilesName hdlA.FileInfo.FilePath hdlB.FileInfo.FilePath
   if isRawBinary hdlA then
     (* dumpRawBinary hdl opts cfg *)
     Printer.printErrorToConsole "Not implemented!"
   else
-    diffBinaryFiles hdlA hdlB cfg opts
+    diffBinWithHdl hdlA hdlB cfg opts
 
 let diffMode (files: string list) (opts: BinDumpOpts) =
   match List.partition System.IO.File.Exists files with
@@ -297,10 +322,26 @@ let diffMode (files: string list) (opts: BinDumpOpts) =
     Printer.printErrorToConsole "Files must be given."
     CmdOpts.PrintUsage toolName usageTail Cmd.spec
   | files, [] ->
-    if opts.TextDiff then files |> diffFiles opts
-    else files |> diffBinaries opts
+    if opts.TextDiff then files |> diffTextFile opts
+    else files |> diffBinaryFile opts
   | _, errs ->
     Printer.printErrorToConsole ("File(s) " + errs.ToString() + " not found!")
+
+let multipleDiffMode (files: string list) (opts: BinDumpOpts) =
+  let rec loop (paths: string list) opts =
+    match paths with
+    | h::t ->
+      let files = h.Split [|' '|] |> List.ofArray
+      printfn "================================================================"
+      printfn "[*] fileA: %s" files[0]
+      printfn "[*] fileB: %s" files[1]
+      printfn ""
+      diffMode files opts
+      loop t opts
+    | _ -> ()
+
+  let paths = readFile files[0] |> List.ofArray
+  loop paths opts
 
 let private dump files (opts: BinDumpOpts) =
 #if DEBUG
@@ -309,6 +350,7 @@ let private dump files (opts: BinDumpOpts) =
   CmdOpts.SanitizeRestArgs files
   try
     if opts.ShowDiff then diffMode files opts
+    elif opts.MultipleDiff then multipleDiffMode files opts
     elif Array.isEmpty opts.InputHexStr then dumpFileMode files opts
     else dumpHexStringMode opts
   finally

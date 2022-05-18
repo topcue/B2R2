@@ -73,6 +73,9 @@ type BinDumpOpts () =
   /// Use histogram diff algorithm
   member val HistogramDiff = false with get, set
 
+  /// Get a file with paths as input
+  member val MultipleDiff = false with get, set
+
   /// Show hexdump widely or not, 32 bytes (default 16 bytes)
   member val ShowWide = false with get, set
 
@@ -242,6 +245,13 @@ type BinDumpOpts () =
     CmdOpts.New (descr = "Use histogram diff algorithm",
                  callback = cb, long = "--histogram")
 
+  static member OptMultipleDiff () =
+    let cb opts _ =
+      (BinDumpOpts.ToThis opts).MultipleDiff <- true
+      opts
+    CmdOpts.New (descr = "Get a file with paths as input",
+                 callback = cb, long = "--multiple")
+
 [<RequireQualifiedAccess>]
 module Cmd =
   let spec: BinDumpOpts FsOptParse.Option list =
@@ -283,6 +293,7 @@ module Cmd =
       BinDumpOpts.OptContextSize ()
       BinDumpOpts.OptMyersDiff ()
       BinDumpOpts.OptHistogramDiff ()
+      BinDumpOpts.OptMultipleDiff ()
 
       CmdOpts.New (descr = "", dummy = true) ]
 
