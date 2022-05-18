@@ -65,6 +65,17 @@ module HexDumper =
     addrStr + ": " + hex + " | " + ascii
     |> OutputNormal
 
+  let internal noAddrHexDumper chuckSize (bytes: byte []) =
+    let padding = padSpace chuckSize (bytes.Length)
+    let hex =
+      Array.append (bytes |> Array.map (fun b -> b.ToString ("X2"))) padding
+      |> Array.mapi (fun idx s -> addSpace idx s)
+      |> Array.fold (fun arr s -> arr + s) ""
+    let ascii =
+      bytes |> Array.fold (fun arr b -> arr + CS.getRepresentation b) ""
+    hex + " | " + ascii
+    |> OutputNormal
+
   let internal dumpLine chuckSize wordSize isColored addr linenum bytes =
     let addrStr = Addr.toString wordSize (addr + uint64 (linenum * chuckSize))
     let dumper = if isColored then colorHexDumper else regularHexDumper
@@ -73,3 +84,10 @@ module HexDumper =
   let dump chuckSize wordSize isColored addr bytes =
     Array.chunkBySize chuckSize bytes
     |> Array.mapi (dumpLine chuckSize wordSize isColored addr)
+
+  let internal dumpLineWithoutAddr chuckSize wordSize addr linenum bytes =
+    noAddrHexDumper chuckSize bytes
+
+  let dumpWithoutAddr chuckSize wordSize addr bytes =
+    Array.chunkBySize chuckSize bytes
+    |> Array.mapi (dumpLineWithoutAddr chuckSize wordSize addr)

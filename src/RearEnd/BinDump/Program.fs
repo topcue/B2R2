@@ -131,6 +131,9 @@ let private printCodeOrTable (printer: BinPrinter) sec =
   printer.Print (BinaryPointer.OfSection sec)
   out.PrintLine ()
 
+let private buildCodeOrTable (builder: BinBuilder) sec =
+  builder.Build (BinaryPointer.OfSection sec) [ ]
+
 let initHandleForTableOutput hdl =
   match hdl.ISA.Arch with
   (* For ARM PLTs, we just assume the ARM mode (if no symbol is given). *)
@@ -206,15 +209,85 @@ let dumpHexStringMode (opts: BinDumpOpts) =
   printer.Print bp
   out.PrintLine ()
 
-let diffFileMode (files: string list) (opts: BinDumpOpts) =
-  ()
-  // match List.partition System.IO.File.Exists files with
-  // | [], [] ->
-  //   Printer.printErrorToConsole "Files must be given."
-  //   CmdOpts.PrintUsage ToolName UsageTail Cmd.spec
-  // | files, [] -> files |> diffBinaries opts
-  // | _, errs ->
-  //   Printer.printErrorToConsole ("File(s) " + errs.ToString() + " not found!")
+let private buildHexdump (opts: BinDumpOpts) sec hdl =
+  let bp = BinaryPointer.OfSection sec
+  let bytes = BinHandle.ReadBytes (hdl, bp=bp, nBytes=int sec.Size)
+  let chunkSize = if opts.ShowWide then 32 else 16
+  HexDumper.dumpWithoutAddr chunkSize hdl.FileInfo.WordSize bp.Addr bytes
+  |> Array.collect (fun x -> [| HexStr(toString x) |])
+
+let private myDumpHex (opts: BinDumpOpts) (sec: Section) hdl =
+  if hasNoContent sec hdl.FileInfo then
+    [| HexStr(""); HexStr("NOBITS section.") |]
+  else buildHexdump opts sec hdl
+
+let private diffAndPrintResult detailsA detailsB (opts: BinDumpOpts) =
+  let linesA = detailsToStr detailsA
+  let linesB = detailsToStr detailsB
+  let prepareAlgo =
+    if opts.MyersDiff then prepareMyersFamily else prepareHistogramFamily
+  let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
+  let rchgA, rchgB =
+    (linesA, linesB)
+    ||> prepareAlgo
+    ||> diffAlgo
+  let diffResult =
+    { LengthA = Array.length linesA
+      LengthB = Array.length linesB
+      LinesA = linesA
+      LinesB = linesB
+      RchgA = rchgA
+      RchgB = rchgB
+      DetailA = detailsA
+      DetailB = detailsB }
+
+  printDiffSideBySide diffResult prepareAlgo diffAlgo
+
+let private getDetailsFromSection sec hdl builder (opts: BinDumpOpts) =
+  match sec.Kind with
+  | SectionKind.ExecutableSection ->
+    buildCodeOrTable builder sec
+  | SectionKind.LinkageTableSection ->
+    initHandleForTableOutput hdl
+    buildCodeOrTable builder sec
+  | _ ->
+    if opts.OnlyDisasm then buildCodeOrTable builder sec
+    else myDumpHex opts sec hdl
+
+let diffRegularFiles hdlA hdlB cfg opts =
+  let sectionsA = hdlA.FileInfo.GetSections ()
+  let sectionsB = hdlB.FileInfo.GetSections ()
+  let builderA = MyBuilder (hdlA, cfg) :> BinBuilder
+  let builderB = MyBuilder (hdlB, cfg) :> BinBuilder
+  (sectionsA, sectionsB)
+  ||> Seq.iter2 (fun secA secB ->
+    if secA.Size > 0UL && secB.Size > 0UL then
+      printDiffSectionsName secA.Name secB.Name
+      let detailsA = getDetailsFromSection secA hdlA builderA opts
+      let detailsB = getDetailsFromSection secB hdlB builderB opts
+      diffAndPrintResult detailsA detailsB opts
+    else ())
+
+let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
+  opts.ShowAddress <- true
+  let hdlA = createBinHandleFromPath opts filepaths[0]
+  let hdlB = createBinHandleFromPath opts filepaths[1]
+  let cfg = getTableConfig hdlA opts.ShowLowUIR
+  printDiffFilesName hdlA.FileInfo.FilePath hdlB.FileInfo.FilePath
+  if isRawBinary hdlA then
+    (* dumpRawBinary hdl opts cfg *)
+    Printer.printErrorToConsole "Not implemented!"
+  else
+    diffRegularFiles hdlA hdlB cfg opts
+
+let diffBinaryMode (files: string list) (opts: BinDumpOpts) =
+  match List.partition System.IO.File.Exists files with
+  | [], [] ->
+    Printer.printErrorToConsole "Files must be given."
+    CmdOpts.PrintUsage toolName usageTail Cmd.spec
+  | files, [] -> files |> diffBinaries opts
+  | _, errs ->
+    Printer.printErrorToConsole ("File(s) " + errs.ToString() + " not found!")
 
 let private dump files (opts: BinDumpOpts) =
 #if DEBUG
@@ -222,7 +295,7 @@ let private dump files (opts: BinDumpOpts) =
 #endif
   CmdOpts.SanitizeRestArgs files
   try
-    if opts.ShowDiff then diffFileMode files opts
+    if opts.ShowDiff then diffBinaryMode files opts
     elif Array.isEmpty opts.InputHexStr then dumpFileMode files opts
     else dumpHexStringMode opts
   finally
