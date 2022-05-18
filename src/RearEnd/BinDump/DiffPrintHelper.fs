@@ -35,14 +35,22 @@ let printLineOnRightSide color detail line =
   colorout.Print [ color, line ]
   colorout.PrintLine ()
 
+let printLineOnLeftSide' color (line: string) =
+  let padSz = System.Console.WindowWidth / 2
+  colorout.Print [ color, line.PadRight padSz ]
+
+let printLineOnRightSide' color line =
+  colorout.Print [ color, line ]
+  colorout.PrintLine ()
+
 let printDiffFilesName fnameA fnameB =
-  printLineOnLeftSide NoColor EmptyStr (String.wrapSqrdBracket fnameA)
-  printLineOnRightSide NoColor EmptyStr (String.wrapSqrdBracket fnameB)
+  printLineOnLeftSide' NoColor (String.wrapSqrdBracket fnameA)
+  printLineOnRightSide' NoColor (String.wrapSqrdBracket fnameB)
 
 let printDiffSectionsName secA secB =
   colorout.PrintLine ()
-  printLineOnLeftSide Blue EmptyStr (String.wrapParen secA)
-  printLineOnRightSide Blue EmptyStr (String.wrapParen secB)
+  printLineOnLeftSide' Blue (String.wrapParen secA)
+  printLineOnRightSide' Blue (String.wrapParen secB)
 
 let printColorExceptSpace color line =
   line
@@ -114,63 +122,28 @@ let rec printDiffSideBySide aPtr bPtr result details diffAlgo prepare =
       printLineOnRightSide NoColor details.B[bPtr] result.LinesB[bPtr]
       printDiffSideBySide (aPtr + 1) (bPtr + 1) result details diffAlgo prepare
     | 'A' ->
-      printLineOnLeftSide NoColor EmptyStr ""
+      printLineOnLeftSide' NoColor ""
       printLineOnRightSide Green details.B[bPtr] result.LinesB[bPtr]
       printDiffSideBySide aPtr (bPtr + 1) result details diffAlgo prepare
     | 'D' ->
       printLineOnLeftSide Red details.A[aPtr] result.LinesA[aPtr]
-      printLineOnRightSide NoColor EmptyStr ""
+      printLineOnRightSide' NoColor ""
       printDiffSideBySide (aPtr + 1) bPtr result details diffAlgo prepare
     | 'R' ->
       doFineGranularityDiff aPtr bPtr result details diffAlgo prepare
       printDiffSideBySide (aPtr + 1) (bPtr + 1) result details diffAlgo prepare
     | _ -> (0, 0)
 
-/// for text file diff
-let rec printDiffSideBySide' aPtr bPtr result diffAlgo prepare =
-  if aPtr = result.LengthA || bPtr = result.LengthB then
-    aPtr, bPtr
-  else
-    match getDiffType aPtr bPtr result with
-    | 'E' ->
-      printLineOnLeftSide NoColor EmptyStr result.LinesA[aPtr]
-      printLineOnRightSide NoColor EmptyStr result.LinesB[bPtr]
-      printDiffSideBySide' (aPtr + 1) (bPtr + 1) result diffAlgo prepare
-    | 'A' ->
-      printLineOnLeftSide NoColor EmptyStr ""
-      printLineOnRightSide Green EmptyStr result.LinesB[bPtr]
-      printDiffSideBySide' aPtr (bPtr + 1) result diffAlgo prepare
-    | 'D' ->
-      printLineOnLeftSide Red EmptyStr result.LinesA[aPtr]
-      printLineOnRightSide NoColor EmptyStr ""
-      printDiffSideBySide' (aPtr + 1) bPtr result diffAlgo prepare
-    | 'R' ->
-      printLineOnLeftSide Red EmptyStr result.LinesA[aPtr]
-      printLineOnRightSide Green EmptyStr result.LinesB[bPtr]
-      printDiffSideBySide' (aPtr + 1) (bPtr + 1) result diffAlgo prepare
-    | _ -> (0, 0)
-
 /// for binary file diff
 let rec printRemainingRightSide bPtr result details =
   if bPtr = result.LengthB then ()
   else
-    printLineOnLeftSide NoColor EmptyStr ""
+    printLineOnLeftSide' NoColor ""
     if isLineDeleted bPtr result then
       printLineOnRightSide NoColor details.B[bPtr] result.LinesB[bPtr]
     else
       printLineOnRightSide Green details.B[bPtr] result.LinesB[bPtr]
     printRemainingRightSide (bPtr + 1) result details
-
-/// for text file diff
-let rec printRemainingRightSide' bPtr result =
-  if bPtr = result.LengthB then ()
-  else
-    printLineOnLeftSide NoColor EmptyStr ""
-    if isLineDeleted bPtr result then
-      printLineOnRightSide NoColor EmptyStr result.LinesB[bPtr]
-    else
-      printLineOnRightSide Green EmptyStr result.LinesB[bPtr]
-    printRemainingRightSide' (bPtr + 1) result
 
 /// for binary file diff
 let rec printRemainingLeftSide aPtr result details =
@@ -180,19 +153,8 @@ let rec printRemainingLeftSide aPtr result details =
       printLineOnLeftSide NoColor details.A[aPtr] result.LinesB[aPtr]
     else
       printLineOnLeftSide Red details.A[aPtr] result.LinesB[aPtr]
-    printLineOnRightSide NoColor EmptyStr ""
+    printLineOnRightSide' NoColor ""
     printRemainingLeftSide (aPtr + 1) result details
-
-/// for text file diff
-let rec printRemainingLeftSide' aPtr result =
-  if aPtr = result.LengthA then ()
-  else
-    if isLineAdded aPtr result then
-      printLineOnLeftSide NoColor EmptyStr result.LinesB[aPtr]
-    else
-      printLineOnLeftSide Red EmptyStr result.LinesB[aPtr]
-    printLineOnRightSide NoColor EmptyStr ""
-    printRemainingLeftSide' (aPtr + 1) result
 
 /// for binary file diff
 let printDiffResult result details diffAlgo prepare =
@@ -202,6 +164,53 @@ let printDiffResult result details diffAlgo prepare =
     printRemainingLeftSide aPtr result details
   if bPtr < result.LengthB then
     printRemainingRightSide bPtr result details
+
+
+/// for text file diff
+let rec printRemainingRightSide' bPtr result =
+  if bPtr = result.LengthB then ()
+  else
+    printLineOnLeftSide' NoColor ""
+    if isLineDeleted bPtr result then
+      printLineOnRightSide' NoColor result.LinesB[bPtr]
+    else
+      printLineOnRightSide' Green result.LinesB[bPtr]
+    printRemainingRightSide' (bPtr + 1) result
+
+/// for text file diff
+let rec printRemainingLeftSide' aPtr result =
+  if aPtr = result.LengthA then ()
+  else
+    if isLineAdded aPtr result then
+      printLineOnLeftSide' NoColor result.LinesB[aPtr]
+    else
+      printLineOnLeftSide' Red result.LinesB[aPtr]
+    printLineOnRightSide' NoColor ""
+    printRemainingLeftSide' (aPtr + 1) result
+
+/// for text file diff
+let rec printDiffSideBySide' aPtr bPtr result diffAlgo prepare =
+  if aPtr = result.LengthA || bPtr = result.LengthB then
+    aPtr, bPtr
+  else
+    match getDiffType aPtr bPtr result with
+    | 'E' ->
+      printLineOnLeftSide' NoColor result.LinesA[aPtr]
+      printLineOnRightSide' NoColor result.LinesB[bPtr]
+      printDiffSideBySide' (aPtr + 1) (bPtr + 1) result diffAlgo prepare
+    | 'A' ->
+      printLineOnLeftSide' NoColor ""
+      printLineOnRightSide' Green result.LinesB[bPtr]
+      printDiffSideBySide' aPtr (bPtr + 1) result diffAlgo prepare
+    | 'D' ->
+      printLineOnLeftSide' Red result.LinesA[aPtr]
+      printLineOnRightSide' NoColor ""
+      printDiffSideBySide' (aPtr + 1) bPtr result diffAlgo prepare
+    | 'R' ->
+      printLineOnLeftSide' Red result.LinesA[aPtr]
+      printLineOnRightSide' Green result.LinesB[bPtr]
+      printDiffSideBySide' (aPtr + 1) (bPtr + 1) result diffAlgo prepare
+    | _ -> (0, 0)
 
 /// for text file diff
 let printDiffResult' result diffAlgo prepare =
