@@ -272,13 +272,10 @@ let diffBinaryFiles hdlA hdlB cfg opts =
 let diffFiles (opts: BinDumpOpts) (filepaths: string list) =
   let linesA = readFile filepaths[0]
   let linesB = readFile filepaths[1]
-  printfn "%A" linesA
-  printfn "%A" linesB
   let prepareAlgo =
     if opts.MyersDiff then prepareMyersFamily else prepareHistogramFamily
   let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
   let result = diffTwoLines linesA linesB diffAlgo prepareAlgo
-  printfn "%A" result
 
   printDiffResult' result diffAlgo prepareAlgo
   ()
