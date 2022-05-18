@@ -61,6 +61,9 @@ type BinDumpOpts () =
   /// Show diff or not?
   member val ShowDiff = false with get, set
 
+  /// Diff two text files.
+  member val TextDiff = false with get, set
+
   /// Input context size from command line.
   member val ContextSize: int = 3 with get, set
 
@@ -207,8 +210,16 @@ type BinDumpOpts () =
     let cb opts _ =
       (BinDumpOpts.ToThis opts).ShowDiff <- true
       opts
-    CmdOpts.New (descr = "Show diff of two files",
+    CmdOpts.New (descr = "Show diff of two binaries",
                  callback = cb, long = "--diff")
+
+  static member OptTextDiff () =
+    let cb opts _ =
+      (BinDumpOpts.ToThis opts).TextDiff <- true
+      opts
+    CmdOpts.New (descr = "Diff two text files",
+                 callback = cb, long = "--text")
+
 
   static member OptContextSize () =
     let cb opts (arg: string[]) =
@@ -268,6 +279,7 @@ module Cmd =
       CmdOpts.New (descr = "", dummy = true)
 
       BinDumpOpts.OptTransOptimization ()
+      BinDumpOpts.OptTextDiff ()
       BinDumpOpts.OptContextSize ()
       BinDumpOpts.OptMyersDiff ()
       BinDumpOpts.OptHistogramDiff ()

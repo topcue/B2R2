@@ -241,8 +241,8 @@ let private diffAndPrintBinaries detailsA detailsB (opts: BinDumpOpts) =
   let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
 
   let diffResult = diffTwoLines linesA linesB diffAlgo prepareAlgo
-  let details = { A = detailsA; B = detailsB}
-  printDiffSideBySide diffResult details prepareAlgo diffAlgo
+  let details = { A = detailsA; B = detailsB }
+  printDiffResult diffResult details diffAlgo prepareAlgo
 
 let private getDetailsFromSection sec hdl builder (opts: BinDumpOpts) =
   match sec.Kind with
@@ -269,6 +269,20 @@ let diffBinaryFiles hdlA hdlB cfg opts =
       diffAndPrintBinaries detailsA detailsB opts
     else ())
 
+let diffFiles (opts: BinDumpOpts) (filepaths: string list) =
+  let linesA = readFile filepaths[0]
+  let linesB = readFile filepaths[1]
+  printfn "%A" linesA
+  printfn "%A" linesB
+  let prepareAlgo =
+    if opts.MyersDiff then prepareMyersFamily else prepareHistogramFamily
+  let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
+  let result = diffTwoLines linesA linesB diffAlgo prepareAlgo
+  printfn "%A" result
+
+  printDiffResult' result diffAlgo prepareAlgo
+  ()
+
 let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
   opts.ShowAddress <- true
   let hdlA = createBinHandleFromPath opts filepaths[0]
@@ -281,12 +295,14 @@ let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
   else
     diffBinaryFiles hdlA hdlB cfg opts
 
-let diffBinaryMode (files: string list) (opts: BinDumpOpts) =
+let diffMode (files: string list) (opts: BinDumpOpts) =
   match List.partition System.IO.File.Exists files with
   | [], [] ->
     Printer.printErrorToConsole "Files must be given."
     CmdOpts.PrintUsage toolName usageTail Cmd.spec
-  | files, [] -> files |> diffBinaries opts
+  | files, [] ->
+    if opts.TextDiff then files |> diffFiles opts
+    else files |> diffBinaries opts
   | _, errs ->
     Printer.printErrorToConsole ("File(s) " + errs.ToString() + " not found!")
 
@@ -296,7 +312,7 @@ let private dump files (opts: BinDumpOpts) =
 #endif
   CmdOpts.SanitizeRestArgs files
   try
-    if opts.ShowDiff then diffBinaryMode files opts
+    if opts.ShowDiff then diffMode files opts
     elif Array.isEmpty opts.InputHexStr then dumpFileMode files opts
     else dumpHexStringMode opts
   finally

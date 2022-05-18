@@ -36,8 +36,6 @@ type DiffResult = {
   LinesB  : string[]
   RchgA   : bool[]
   RchgB   : bool[]
-  // DetailA : Detail[]
-  // DetailB : Detail[]
 }
 
 type Details = {

@@ -60,7 +60,7 @@ let printDiffSectionsName secA secB =
   printLineOnLeftSide Blue EmptyStr (String.wrapParen secA)
   printLineOnRightSide Blue EmptyStr (String.wrapParen secB)
 
-let doFinerDiffDataSection aPtr bPtr result prepare diffAlgo =
+let doFinerDiffDataSection aPtr bPtr result diffAlgo prepare =
   let finerLinesA = result.LinesA[aPtr] |> Seq.toArray |> splitStr
   let finerLinesB = result.LinesB[bPtr] |> Seq.toArray |> splitStr
 
@@ -69,8 +69,7 @@ let doFinerDiffDataSection aPtr bPtr result prepare diffAlgo =
   ||> diffAlgo
   ||> printFinerDiffResult finerLinesA finerLinesB "" ""
 
-
-let doFinerDiffCodeSection aPtr bPtr result details prepare diffAlgo =
+let doFinerDiffCodeSection aPtr bPtr result details diffAlgo prepare =
   let finerLinesA, addrA =
     match details.A[aPtr] with
     | AddrAsmPair(addr, asm) -> asm, addr + ": "
@@ -87,28 +86,47 @@ let doFinerDiffCodeSection aPtr bPtr result details prepare diffAlgo =
   ||> diffAlgo
   ||> printFinerDiffResult finerLinesA finerLinesB addrA addrB
 
-let doFineGranularityDiff aPtr bPtr result details prepare diffAlgo =
+let doFineGranularityDiff aPtr bPtr result details diffAlgo prepare =
   match details.A[aPtr] with
-  | HexStr(_) -> doFinerDiffDataSection aPtr bPtr result prepare diffAlgo
-  | _ -> doFinerDiffCodeSection aPtr bPtr result details prepare diffAlgo
+  | HexStr(_) -> doFinerDiffDataSection aPtr bPtr result diffAlgo prepare
+  | _ -> doFinerDiffCodeSection aPtr bPtr result details diffAlgo prepare
 
-let rec printDiffLeftRightSide aPtr bPtr result details prepare diffAlgo =
+let rec printDiffSideBySide aPtr bPtr result details diffAlgo prepare =
   if aPtr = result.LengthA || bPtr = result.LengthB then aPtr, bPtr
   elif not result.RchgA[aPtr] && not result.RchgB[bPtr] then
     printLineOnLeftSide NoColor details.A[aPtr] result.LinesA[aPtr]
     printLineOnRightSide NoColor details.B[bPtr] result.LinesB[bPtr]
-    printDiffLeftRightSide (aPtr + 1) (bPtr + 1) result details prepare diffAlgo
+    printDiffSideBySide (aPtr + 1) (bPtr + 1) result details diffAlgo prepare
   elif not result.RchgA[aPtr] then
     printLineOnLeftSide NoColor EmptyStr ""
     printLineOnRightSide Green details.B[bPtr] result.LinesB[bPtr]
-    printDiffLeftRightSide aPtr (bPtr + 1) result details prepare diffAlgo
+    printDiffSideBySide aPtr (bPtr + 1) result details diffAlgo prepare
   elif not result.RchgB[bPtr] then
     printLineOnLeftSide Red details.A[aPtr] result.LinesA[aPtr]
     printLineOnRightSide NoColor EmptyStr ""
-    printDiffLeftRightSide (aPtr + 1) bPtr result details prepare diffAlgo
+    printDiffSideBySide (aPtr + 1) bPtr result details diffAlgo prepare
   else
-    doFineGranularityDiff aPtr bPtr result details prepare diffAlgo
-    printDiffLeftRightSide (aPtr + 1) (bPtr + 1) result details prepare diffAlgo
+    doFineGranularityDiff aPtr bPtr result details diffAlgo prepare
+    printDiffSideBySide (aPtr + 1) (bPtr + 1) result details diffAlgo prepare
+
+let rec printDiffSideBySide' aPtr bPtr result diffAlgo prepare =
+  if aPtr = result.LengthA || bPtr = result.LengthB then aPtr, bPtr
+  elif not result.RchgA[aPtr] && not result.RchgB[bPtr] then
+    printLineOnLeftSide NoColor EmptyStr result.LinesA[aPtr]
+    printLineOnRightSide NoColor EmptyStr result.LinesB[bPtr]
+    printDiffSideBySide' (aPtr + 1) (bPtr + 1) result diffAlgo prepare
+  elif not result.RchgA[aPtr] then
+    printLineOnLeftSide NoColor EmptyStr ""
+    printLineOnRightSide Green EmptyStr result.LinesB[bPtr]
+    printDiffSideBySide' aPtr (bPtr + 1) result diffAlgo prepare
+  elif not result.RchgB[bPtr] then
+    printLineOnLeftSide Red EmptyStr result.LinesA[aPtr]
+    printLineOnRightSide NoColor EmptyStr ""
+    printDiffSideBySide' (aPtr + 1) bPtr result diffAlgo prepare
+  else
+    printLineOnLeftSide Red EmptyStr result.LinesA[aPtr]
+    printLineOnRightSide Green EmptyStr result.LinesB[bPtr]
+    printDiffSideBySide' (aPtr + 1) (bPtr + 1) result diffAlgo prepare
 
 let rec printRemainingRightSide bPtr result details =
   if bPtr = result.LengthB then ()
@@ -120,6 +138,16 @@ let rec printRemainingRightSide bPtr result details =
       printLineOnRightSide Green details.B[bPtr] result.LinesB[bPtr]
     printRemainingRightSide (bPtr + 1) result details
 
+let rec printRemainingRightSide' bPtr result =
+  if bPtr = result.LengthB then ()
+  else
+    printLineOnLeftSide NoColor EmptyStr ""
+    if not result.RchgB[bPtr] then
+      printLineOnRightSide NoColor EmptyStr result.LinesB[bPtr]
+    else
+      printLineOnRightSide Green EmptyStr result.LinesB[bPtr]
+    printRemainingRightSide' (bPtr + 1) result
+
 let rec printRemainingLeftSide aPtr result details =
   if aPtr = result.LengthA then ()
   else
@@ -130,7 +158,29 @@ let rec printRemainingLeftSide aPtr result details =
     printLineOnRightSide NoColor EmptyStr ""
     printRemainingLeftSide (aPtr + 1) result details
 
-let printDiffSideBySide result details prepare diffAlgo =
-  let aPtr, bPtr = printDiffLeftRightSide 0 0 result details prepare diffAlgo
-  if aPtr < result.LengthA then printRemainingLeftSide aPtr result details
-  if bPtr < result.LengthB then printRemainingRightSide bPtr result details
+let rec printRemainingLeftSide' aPtr result =
+  if aPtr = result.LengthA then ()
+  else
+    if not result.RchgA[aPtr] then
+      printLineOnLeftSide NoColor EmptyStr result.LinesB[aPtr]
+    else
+      printLineOnLeftSide Red EmptyStr result.LinesB[aPtr]
+    printLineOnRightSide NoColor EmptyStr ""
+    printRemainingLeftSide' (aPtr + 1) result
+
+let printDiffResult result details diffAlgo prepare =
+  let aPtr, bPtr =
+    printDiffSideBySide 0 0 result details diffAlgo prepare
+  if aPtr < result.LengthA then
+    printRemainingLeftSide aPtr result details
+  if bPtr < result.LengthB then
+    printRemainingRightSide bPtr result details
+
+let printDiffResult' result diffAlgo prepare =
+  let aPtr, bPtr =
+    printDiffSideBySide' 0 0 result diffAlgo prepare
+  if aPtr < result.LengthA then
+    printRemainingLeftSide' aPtr result
+  if bPtr < result.LengthB then
+    printRemainingRightSide' bPtr result
+  ()
