@@ -9,6 +9,7 @@
 .leu
 
 .DS_Store
+src/RearEnd/BinDump/paths.txt
 
 .vscode
 .idea
