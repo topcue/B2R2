@@ -70,14 +70,14 @@ let doFinerDiffDataSection aPtr bPtr result prepare diffAlgo =
   ||> printFinerDiffResult finerLinesA finerLinesB "" ""
 
 
-let doFinerDiffCodeSection aPtr bPtr result prepare diffAlgo =
+let doFinerDiffCodeSection aPtr bPtr result details prepare diffAlgo =
   let finerLinesA, addrA =
-    match result.DetailA[aPtr] with
+    match details.A[aPtr] with
     | AddrAsmPair(addr, asm) -> asm, addr + ": "
     | FuncSymbol(sym) -> [| sym |], ""
     | _ -> [| "" |], ""
   let finerLinesB, addrB =
-    match result.DetailB[bPtr] with
+    match details.B[bPtr] with
     | AddrAsmPair(addr, asm) -> asm, addr + ": "
     | FuncSymbol(sym) -> [| sym |], ""
     | _ -> [| "" |], ""
@@ -87,50 +87,50 @@ let doFinerDiffCodeSection aPtr bPtr result prepare diffAlgo =
   ||> diffAlgo
   ||> printFinerDiffResult finerLinesA finerLinesB addrA addrB
 
-let doFineGranularityDiff aPtr bPtr result prepare diffAlgo =
-  match result.DetailA[aPtr] with
+let doFineGranularityDiff aPtr bPtr result details prepare diffAlgo =
+  match details.A[aPtr] with
   | HexStr(_) -> doFinerDiffDataSection aPtr bPtr result prepare diffAlgo
-  | _ -> doFinerDiffCodeSection aPtr bPtr result prepare diffAlgo
+  | _ -> doFinerDiffCodeSection aPtr bPtr result details prepare diffAlgo
 
-let rec printDiffLeftRightSide aPtr bPtr result prepare diffAlgo =
+let rec printDiffLeftRightSide aPtr bPtr result details prepare diffAlgo =
   if aPtr = result.LengthA || bPtr = result.LengthB then aPtr, bPtr
   elif not result.RchgA[aPtr] && not result.RchgB[bPtr] then
-    printLineOnLeftSide NoColor result.DetailA[aPtr] result.LinesA[aPtr]
-    printLineOnRightSide NoColor result.DetailB[bPtr] result.LinesB[bPtr]
-    printDiffLeftRightSide (aPtr + 1) (bPtr + 1) result prepare diffAlgo
+    printLineOnLeftSide NoColor details.A[aPtr] result.LinesA[aPtr]
+    printLineOnRightSide NoColor details.B[bPtr] result.LinesB[bPtr]
+    printDiffLeftRightSide (aPtr + 1) (bPtr + 1) result details prepare diffAlgo
   elif not result.RchgA[aPtr] then
     printLineOnLeftSide NoColor EmptyStr ""
-    printLineOnRightSide Green result.DetailB[bPtr] result.LinesB[bPtr]
-    printDiffLeftRightSide aPtr (bPtr + 1) result prepare diffAlgo
+    printLineOnRightSide Green details.B[bPtr] result.LinesB[bPtr]
+    printDiffLeftRightSide aPtr (bPtr + 1) result details prepare diffAlgo
   elif not result.RchgB[bPtr] then
-    printLineOnLeftSide Red result.DetailA[aPtr] result.LinesA[aPtr]
+    printLineOnLeftSide Red details.A[aPtr] result.LinesA[aPtr]
     printLineOnRightSide NoColor EmptyStr ""
-    printDiffLeftRightSide (aPtr + 1) bPtr result prepare diffAlgo
+    printDiffLeftRightSide (aPtr + 1) bPtr result details prepare diffAlgo
   else
-    doFineGranularityDiff aPtr bPtr result prepare diffAlgo
-    printDiffLeftRightSide (aPtr + 1) (bPtr + 1) result prepare diffAlgo
+    doFineGranularityDiff aPtr bPtr result details prepare diffAlgo
+    printDiffLeftRightSide (aPtr + 1) (bPtr + 1) result details prepare diffAlgo
 
-let rec printRestOfRightSide bPtr result =
+let rec printRemainingRightSide bPtr result details =
   if bPtr = result.LengthB then ()
   else
     printLineOnLeftSide NoColor EmptyStr ""
     if not result.RchgB[bPtr] then
-      printLineOnRightSide NoColor result.DetailB[bPtr] result.LinesB[bPtr]
+      printLineOnRightSide NoColor details.B[bPtr] result.LinesB[bPtr]
     else
-      printLineOnRightSide Green result.DetailB[bPtr] result.LinesB[bPtr]
-    printRestOfRightSide (bPtr + 1) result
+      printLineOnRightSide Green details.B[bPtr] result.LinesB[bPtr]
+    printRemainingRightSide (bPtr + 1) result details
 
-let rec printRestOfLeftSide aPtr result =
+let rec printRemainingLeftSide aPtr result details =
   if aPtr = result.LengthA then ()
   else
     if not result.RchgA[aPtr] then
-      printLineOnLeftSide NoColor result.DetailA[aPtr] result.LinesB[aPtr]
+      printLineOnLeftSide NoColor details.A[aPtr] result.LinesB[aPtr]
     else
-      printLineOnLeftSide Red result.DetailA[aPtr] result.LinesB[aPtr]
+      printLineOnLeftSide Red details.A[aPtr] result.LinesB[aPtr]
     printLineOnRightSide NoColor EmptyStr ""
-    printRestOfLeftSide (aPtr + 1) result
+    printRemainingLeftSide (aPtr + 1) result details
 
-let printDiffSideBySide result prepare diffAlgo =
-  let aPtr, bPtr = printDiffLeftRightSide 0 0 result prepare diffAlgo
-  if aPtr < result.LengthA then printRestOfLeftSide aPtr result
-  if bPtr < result.LengthB then printRestOfRightSide bPtr result
+let printDiffSideBySide result details prepare diffAlgo =
+  let aPtr, bPtr = printDiffLeftRightSide 0 0 result details prepare diffAlgo
+  if aPtr < result.LengthA then printRemainingLeftSide aPtr result details
+  if bPtr < result.LengthB then printRemainingRightSide bPtr result details

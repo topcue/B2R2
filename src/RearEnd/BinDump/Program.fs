@@ -221,27 +221,28 @@ let private myDumpHex (opts: BinDumpOpts) (sec: Section) hdl =
     [| HexStr(""); HexStr("NOBITS section.") |]
   else buildHexdump opts sec hdl
 
-let private diffAndPrintResult detailsA detailsB (opts: BinDumpOpts) =
+let private diffTwoLines linesA linesB diffAlgo prepareAlgo =
+  let rchgA, rchgB =
+    (linesA, linesB)
+    ||> prepareAlgo
+    ||> diffAlgo
+  { LengthA = Array.length linesA
+    LengthB = Array.length linesB
+    LinesA = linesA
+    LinesB = linesB
+    RchgA = rchgA
+    RchgB = rchgB }
+
+let private diffAndPrintBinaries detailsA detailsB (opts: BinDumpOpts) =
   let linesA = detailsToStr detailsA
   let linesB = detailsToStr detailsB
   let prepareAlgo =
     if opts.MyersDiff then prepareMyersFamily else prepareHistogramFamily
   let diffAlgo = if opts.MyersDiff then myersDiff else histogramDiff
-  let rchgA, rchgB =
-    (linesA, linesB)
-    ||> prepareAlgo
-    ||> diffAlgo
-  let diffResult =
-    { LengthA = Array.length linesA
-      LengthB = Array.length linesB
-      LinesA = linesA
-      LinesB = linesB
-      RchgA = rchgA
-      RchgB = rchgB
-      DetailA = detailsA
-      DetailB = detailsB }
 
-  printDiffSideBySide diffResult prepareAlgo diffAlgo
+  let diffResult = diffTwoLines linesA linesB diffAlgo prepareAlgo
+  let details = { A = detailsA; B = detailsB}
+  printDiffSideBySide diffResult details prepareAlgo diffAlgo
 
 let private getDetailsFromSection sec hdl builder (opts: BinDumpOpts) =
   match sec.Kind with
@@ -254,7 +255,7 @@ let private getDetailsFromSection sec hdl builder (opts: BinDumpOpts) =
     if opts.OnlyDisasm then buildCodeOrTable builder sec
     else myDumpHex opts sec hdl
 
-let diffRegularFiles hdlA hdlB cfg opts =
+let diffBinaryFiles hdlA hdlB cfg opts =
   let sectionsA = hdlA.FileInfo.GetSections ()
   let sectionsB = hdlB.FileInfo.GetSections ()
   let builderA = MyBuilder (hdlA, cfg) :> BinBuilder
@@ -265,7 +266,7 @@ let diffRegularFiles hdlA hdlB cfg opts =
       printDiffSectionsName secA.Name secB.Name
       let detailsA = getDetailsFromSection secA hdlA builderA opts
       let detailsB = getDetailsFromSection secB hdlB builderB opts
-      diffAndPrintResult detailsA detailsB opts
+      diffAndPrintBinaries detailsA detailsB opts
     else ())
 
 let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
@@ -278,7 +279,7 @@ let diffBinaries (opts: BinDumpOpts) (filepaths: string list) =
     (* dumpRawBinary hdl opts cfg *)
     Printer.printErrorToConsole "Not implemented!"
   else
-    diffRegularFiles hdlA hdlB cfg opts
+    diffBinaryFiles hdlA hdlB cfg opts
 
 let diffBinaryMode (files: string list) (opts: BinDumpOpts) =
   match List.partition System.IO.File.Exists files with
