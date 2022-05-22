@@ -237,7 +237,7 @@ let private diffBinarySection detailsA detailsB (opts: BinDumpOpts) =
   let linesA = detailsToStr detailsA
   let linesB = detailsToStr detailsB
   let prepare, diff =
-    if opts.MyersDiff then prepareMyersFamily, myersDiff
+    if opts.HistogramDiff then prepareHistogramFamily, histogramDiff
     else prepareHistogramFamily, histogramDiff
   let diffResult = diffTwoLines linesA linesB diff prepare
   let details = { A = detailsA; B = detailsB }
@@ -293,7 +293,7 @@ let diffTextFile (opts: BinDumpOpts) (filepaths: string list) =
   let linesA = readFile filepaths[0]
   let linesB = readFile filepaths[1]
   let prepare, diff =
-    if opts.MyersDiff then prepareMyersFamily, myersDiff
+    if opts.HistogramDiff then prepareHistogramFamily, histogramDiff
     else prepareHistogramFamily, histogramDiff
   let result = diffTwoLines linesA linesB diff prepare
 
