@@ -238,7 +238,7 @@ let private diffBinarySection detailsA detailsB (opts: BinDumpOpts) =
   let linesB = detailsToStr detailsB
   let prepare, diff =
     if opts.HistogramDiff then prepareHistogramFamily, histogramDiff
-    else prepareHistogramFamily, histogramDiff
+    else prepareMyersFamily, myersDiff
   let diffResult = diffTwoLines linesA linesB diff prepare
   let details = { A = detailsA; B = detailsB }
   printDiffResult diffResult details diff prepare
@@ -258,8 +258,8 @@ let private diffForMetric detailsA detailsB (opts: BinDumpOpts) secName =
   let linesA = detailsToStr detailsA
   let linesB = detailsToStr detailsB
   let prepare, diff =
-    if opts.MyersDiff then prepareMyersFamily, myersDiff
-    else prepareHistogramFamily, histogramDiff
+    if opts.HistogramDiff then prepareHistogramFamily, histogramDiff
+    else prepareMyersFamily, myersDiff
   let diffResult = diffTwoLines linesA linesB diff prepare
 
   let NLD = diffResult.RchgA |> Array.filter (fun e -> e = true ) |> Array.length
@@ -294,7 +294,7 @@ let diffTextFile (opts: BinDumpOpts) (filepaths: string list) =
   let linesB = readFile filepaths[1]
   let prepare, diff =
     if opts.HistogramDiff then prepareHistogramFamily, histogramDiff
-    else prepareHistogramFamily, histogramDiff
+    else prepareMyersFamily, myersDiff
   let result = diffTwoLines linesA linesB diff prepare
 
   if opts.ShowDiff then
