@@ -25,6 +25,7 @@
 namespace B2R2.RearEnd.Transformer.Tests
 
 open System
+open System.Text
 open System.Text.Json
 open Microsoft.VisualStudio.TestTools.UnitTesting
 open B2R2
@@ -115,3 +116,36 @@ type DiffTests() =
       let right =
         Array.init (random.Next(0, 9)) (fun _ -> byte (random.Next 4))
       Assert.AreEqual(lcsLength left right, summaryEqual left right)
+
+  [<TestMethod>]
+  member _.``Text mode compares lines instead of bytes``() =
+    let left = Encoding.UTF8.GetBytes("alpha\nbeta\n")
+    let right = Encoding.UTF8.GetBytes("alpha\nnew\nbeta\n")
+    let output = run [ "mode=text"; "histogram"; "summary" ] left right
+    StringAssert.Contains(output, "equal: 2")
+    StringAssert.Contains(output, "added: 1")
+    StringAssert.Contains(output, "unit: lines")
+
+  [<TestMethod>]
+  member _.``Instruction mode renders disassembly and addresses``() =
+    let output =
+      run [ "mode=instructions"; "no-color" ]
+        [| 0x90uy; 0xc3uy |]
+        [| 0x90uy; 0x90uy; 0xc3uy |]
+    StringAssert.Contains(output, "0000000000000000")
+    StringAssert.Contains(output, "nop")
+    StringAssert.Contains(output, "ret")
+
+  [<TestMethod>]
+  member _.``Section mode labels binary sections``() =
+    let output =
+      run [ "mode=sections"; "section=.text"; "no-color" ]
+        [| 0x90uy; 0xc3uy |]
+        [| 0x90uy; 0x90uy; 0xc3uy |]
+    StringAssert.Contains(output, "[.text]")
+
+  [<TestMethod>]
+  member _.``Diff mode must be recognized``() =
+    Assert.Throws<ArgumentException>(Action(fun () ->
+      run [ "mode=unknown" ] [| 0uy |] [| 1uy |] |> ignore))
+    |> ignore

@@ -26,8 +26,11 @@ namespace B2R2.RearEnd.Transformer
 
 open System
 open System.Collections.Generic
+open System.Text
 open System.Text.Json
 open B2R2
+open B2R2.FrontEnd
+open B2R2.FrontEnd.BinFile
 open B2R2.RearEnd.Transformer.Utils
 
 type DiffAlgorithm =
@@ -39,18 +42,32 @@ type DiffFormat =
   | Summary
   | Json
 
+type DiffMode =
+  | Bytes
+  | Text
+  | Instructions
+  | Sections
+
 type DiffOptions =
   { Algorithm: DiffAlgorithm
     Format: DiffFormat
+    Mode: DiffMode
+    SectionName: string option
+    ISAName: string option
     Context: int option
     Width: int
+    ColumnWidth: int
     UseColor: bool }
 with
   static member Default =
     { Algorithm = Myers
       Format = SideBySide
+      Mode = Bytes
+      SectionName = None
+      ISAName = None
       Context = None
       Width = 16
+      ColumnWidth = 72
       UseColor = true }
 
 type DiffMetrics =
@@ -65,6 +82,10 @@ type DiffPair =
   { Left: int option
     Right: int option
     Changed: bool }
+
+type SemanticLine =
+  { Prefix: string
+    Content: string }
 
 type KVecDim =
   { XOffsets: int[]
@@ -113,12 +134,26 @@ type DiffAction() =
         { opts with Format = Summary }
       | [| "json" |] ->
         { opts with Format = Json }
+      | [| "mode"; "bytes" |] ->
+        { opts with Mode = Bytes }
+      | [| "mode"; "text" |] ->
+        { opts with Mode = Text }
+      | [| "mode"; "instructions" |] ->
+        { opts with Mode = Instructions }
+      | [| "mode"; "sections" |] ->
+        { opts with Mode = Sections }
+      | [| "section"; name |] when not (String.IsNullOrWhiteSpace name) ->
+        { opts with SectionName = Some name }
+      | [| "isa"; name |] when not (String.IsNullOrWhiteSpace name) ->
+        { opts with ISAName = Some name }
       | [| "no-color" |] ->
         { opts with UseColor = false }
       | [| "context"; value |] ->
         { opts with Context = Some(parseNonnegative "context" value) }
       | [| "width"; value |] ->
         { opts with Width = parsePositive "width" value }
+      | [| "column"; value |] ->
+        { opts with ColumnWidth = parsePositive "column" value }
       | _ ->
         invalidArg (nameof args) $"Invalid diff option: {arg}"
     ) DiffOptions.Default
@@ -344,11 +379,11 @@ type DiffAction() =
     |> cmpChangedLines kvd dd1 dd2
     dd1.ChangedLineNumbers, dd2.ChangedLineNumbers
 
-  let hasCommonValue (left: byte[]) (right: byte[]) =
-    let values = HashSet<byte> right
+  let hasCommonValue (left: 'T[]) (right: 'T[]) =
+    let values = HashSet<'T> right
     left |> Array.exists values.Contains
 
-  let compareMyers (left: byte[]) (right: byte[]) =
+  let compareMyers (left: 'T[]) (right: 'T[]) =
     if Array.isEmpty left then
       [||], Array.create right.Length true
     elif Array.isEmpty right then
@@ -361,8 +396,8 @@ type DiffAction() =
       let leftData, rightData = prepareMyers left right
       myersDiff leftData rightData
 
-  let countValues (values: byte[]) (startIdx: int) (endIdx: int) =
-    let counts = Dictionary<byte, int>()
+  let countValues (values: 'T[]) (startIdx: int) (endIdx: int) =
+    let counts = Dictionary<'T, int>()
     for idx = startIdx to endIdx - 1 do
       let value = values[idx]
       match counts.TryGetValue value with
@@ -382,8 +417,8 @@ type DiffAction() =
         ())
 
   let findRareAnchor
-    (left: byte[])
-    (right: byte[])
+    (left: 'T[])
+    (right: 'T[])
     leftStart
     leftEnd
     rightStart
@@ -418,7 +453,7 @@ type DiffAction() =
         ()
     best
 
-  let compareHistogram (left: byte[]) (right: byte[]) =
+  let compareHistogram (left: 'T[]) (right: 'T[]) =
     let leftChanged = Array.create left.Length false
     let rightChanged = Array.create right.Length false
     let rec compareRange leftStart leftEnd rightStart rightEnd =
@@ -455,10 +490,10 @@ type DiffAction() =
     compareRange 0 left.Length 0 right.Length
     leftChanged, rightChanged
 
-  let compareBytes
+  let compareValues
     (algorithm: DiffAlgorithm)
-    (left: byte[])
-    (right: byte[]) =
+    (left: 'T[])
+    (right: 'T[]) =
     match algorithm with
     | Myers -> compareMyers left right
     | Histogram -> compareHistogram left right
@@ -538,19 +573,31 @@ type DiffAction() =
     | Myers -> "myers"
     | Histogram -> "histogram"
 
+  let modeName = function
+    | Bytes -> "bytes"
+    | Text -> "text"
+    | Instructions -> "instructions"
+    | Sections -> "sections"
+
   let binaryName (fallback: string) (bin: Binary) =
     let path = (Binary.Handle bin).File.Path
     if String.IsNullOrWhiteSpace path then fallback else path
 
   let formatMetrics
     (algorithm: DiffAlgorithm)
+    mode
+    unitName
     leftName
     rightName
     (metrics: DiffMetrics) =
     let similarity = metrics.Similarity.ToString("F6")
+    let rightSummary =
+      $"right: {rightName} ({metrics.RightLength} {unitName})"
     $"algorithm: {algorithmName algorithm}{Environment.NewLine}" +
-    $"left: {leftName} ({metrics.LeftLength} bytes){Environment.NewLine}" +
-    $"right: {rightName} ({metrics.RightLength} bytes){Environment.NewLine}" +
+    $"mode: {modeName mode}{Environment.NewLine}" +
+    $"unit: {unitName}{Environment.NewLine}" +
+    $"left: {leftName} ({metrics.LeftLength} {unitName}){Environment.NewLine}" +
+    rightSummary + Environment.NewLine +
     $"equal: {metrics.Equal}{Environment.NewLine}" +
     $"added: {metrics.Added} (NLA){Environment.NewLine}" +
     $"removed: {metrics.Removed} (NLD){Environment.NewLine}" +
@@ -558,11 +605,15 @@ type DiffAction() =
 
   let formatJson
     (algorithm: DiffAlgorithm)
+    mode
+    unitName
     leftName
     rightName
     (metrics: DiffMetrics) =
     JsonSerializer.Serialize
       {| algorithm = algorithmName algorithm
+         mode = modeName mode
+         unit = unitName
          left = leftName
          right = rightName
          leftLength = metrics.LeftLength
@@ -613,6 +664,260 @@ type DiffAction() =
           ())
       selected
 
+  let splitTextLines (bytes: byte[]) =
+    let lines =
+      Encoding.UTF8.GetString(bytes)
+        .Replace("\r\n", "\n")
+        .Replace('\r', '\n')
+        .Split('\n')
+    if Array.isEmpty lines || lines[lines.Length - 1] <> "" then
+      lines
+    else
+      lines[..lines.Length - 2]
+
+  let symbolMap (file: IBinFile) =
+    let symbols = Dictionary<Addr, string>()
+    for symbol in BinFileOps.getSymbols file do
+      if symbol.IsDefined && symbol.Kind = FunctionSymbol then
+        symbols.TryAdd(symbol.Address, symbol.Name) |> ignore
+      else
+        ()
+    symbols
+
+  let instructionLine (symbols: Dictionary<Addr, string>) = function
+    | ValidInstruction(instr, bytes) ->
+      let hex = makeByteArraySummary bytes
+      let lines = ResizeArray<SemanticLine>()
+      match symbols.TryGetValue instr.Address with
+      | true, name ->
+        lines.Add { Prefix = ""; Content = $"<{name}>" }
+      | false, _ ->
+        ()
+      lines.Add
+        { Prefix = $"{instr.Address:x16}: "
+          Content = $"{hex.PadRight 24} | {instr.Disasm()}" }
+      lines.ToArray()
+    | BadInstruction(addr, bytes) ->
+      [| { Prefix = $"{addr:x16}: "
+           Content = $"{makeByteArraySummary bytes} | (bad)" } |]
+
+  let rec disassemble acc (lifter: LiftingUnit) (ptr: BinFilePointer) =
+    if ptr.CanReadFileBytes then
+      match lifter.TryParseInstruction ptr with
+      | Ok instr when int instr.Length <= ptr.ReadableAmount ->
+        let length = int instr.Length
+        let bytes =
+          (BinFileOps.sliceByOffset lifter.File ptr.Offset length).ToArray()
+        let nextPtr = ptr.Advance length
+        let acc = ValidInstruction(instr, bytes) :: acc
+        disassemble acc lifter nextPtr
+      | _ ->
+        let bytes = [| lifter.File.RawBytes.Span[ptr.Offset] |]
+        let nextPtr = ptr.Advance 1
+        let acc = BadInstruction(ptr.Addr, bytes) :: acc
+        disassemble acc lifter nextPtr
+    else
+      List.rev acc |> List.toArray
+
+  let fullPointer (hdl: BinHandle) =
+    let length = hdl.File.Length
+    if length = 0 then
+      BinFilePointer.Null
+    else
+      let baseAddr = hdl.File.BaseAddress
+      BinFilePointer.CreateFileBacked(
+        baseAddr, baseAddr + uint64 length - 1UL, 0, length - 1
+      )
+
+  let disassemblyLines (hdl: BinHandle) (ptr: BinFilePointer) =
+    let symbols = symbolMap hdl.File
+    disassemble [] (hdl.NewLiftingUnit()) ptr
+    |> Array.collect (instructionLine symbols)
+
+  let dataLines (hdl: BinHandle) (section: BinSection) =
+    match section.Offset with
+    | Some offset when section.FileSize > 0UL ->
+      let length = int section.FileSize
+      let bytes =
+        (BinFileOps.sliceByOffset hdl.File (int offset) length).ToArray()
+      bytes
+      |> Array.chunkBySize 16
+      |> Array.mapi (fun idx chunk ->
+        { Prefix = $"{section.Address + uint64 (idx * 16):x16}: "
+          Content = makeByteArraySummary chunk })
+    | _ ->
+      [||]
+
+  let sectionLines sectionName (hdl: BinHandle) =
+    let allSections = BinFileOps.getSections hdl.File
+    let sections =
+      allSections
+      |> Array.filter (fun section ->
+        match sectionName with
+        | Some name -> section.Name = name
+        | None -> true)
+    if Array.isEmpty allSections && Option.isNone sectionName then
+      Array.append
+        [| { Prefix = ""; Content = "[.text] (CodeSection)" } |]
+        (fullPointer hdl |> disassemblyLines hdl)
+    elif Array.isEmpty allSections && sectionName = Some ".text" then
+      Array.append
+        [| { Prefix = ""; Content = "[.text] (CodeSection)" } |]
+        (fullPointer hdl |> disassemblyLines hdl)
+    elif Array.isEmpty sections then
+      [||]
+    else
+      sections
+      |> Array.collect (fun section ->
+        let header =
+          { Prefix = ""
+            Content = $"[{section.Name}] ({section.Kind})" }
+        let body =
+          match section.Kind with
+          | CodeSection
+          | DynamicLinkageSection ->
+            BinFileOps.getSectionPointer hdl.File section.Name
+            |> disassemblyLines hdl
+          | UninitializedDataSection ->
+            [| { Prefix = ""; Content = "(no file-backed data)" } |]
+          | _ ->
+            dataLines hdl section
+        Array.append [| header |] body)
+
+  let semanticLines (opts: DiffOptions) (bin: Binary) =
+    let hdl = Binary.Handle bin
+    match opts.Mode with
+    | Text ->
+      hdl.File.RawBytes.ToArray()
+      |> splitTextLines
+      |> Array.mapi (fun idx line ->
+        { Prefix = $"{idx + 1,6} | "; Content = line })
+    | Instructions ->
+      fullPointer hdl |> disassemblyLines hdl
+    | Sections ->
+      sectionLines opts.SectionName hdl
+    | Bytes ->
+      invalidArg (nameof opts) "Byte mode does not produce semantic lines."
+
+  let commonPrefixLength (left: string) (right: string) =
+    let limit = min left.Length right.Length
+    let rec loop idx =
+      if idx < limit && left[idx] = right[idx] then loop (idx + 1)
+      else idx
+    loop 0
+
+  let commonSuffixLength prefix (left: string) (right: string) =
+    let limit = min (left.Length - prefix) (right.Length - prefix)
+    let rec loop count =
+      if count < limit
+        && left[left.Length - count - 1] = right[right.Length - count - 1]
+      then loop (count + 1)
+      else count
+    loop 0
+
+  let appendFineChange (cs: ColoredString) color text other =
+    let text: string = text
+    let other: string = other
+    let prefix = commonPrefixLength text other
+    let suffix = commonSuffixLength prefix text other
+    if prefix > 0 then
+      cs.Append(NoColor, text[..prefix - 1]) |> ignore
+    else
+      ()
+    let changedLength = text.Length - prefix - suffix
+    if changedLength > 0 then
+      cs.Append(color, text.Substring(prefix, changedLength)) |> ignore
+    else
+      ()
+    if suffix > 0 then
+      cs.Append(NoColor, text[text.Length - suffix..])
+    else
+      cs
+
+  let appendSemanticCell (cs: ColoredString) color changed line other =
+    let line: SemanticLine option = line
+    let other: SemanticLine option = other
+    match line with
+    | None ->
+      cs
+    | Some line ->
+      cs.Append(NoColor, line.Prefix) |> ignore
+      match changed, other with
+      | true, Some other ->
+        appendFineChange cs color line.Content other.Content
+      | true, None ->
+        cs.Append(color, line.Content)
+      | false, _ ->
+        cs.Append(NoColor, line.Content)
+
+  let semanticCellLength = function
+    | Some line -> line.Prefix.Length + line.Content.Length
+    | None -> 0
+
+  let truncate width (text: string) =
+    if text.Length <= width then
+      text
+    elif width <= 3 then
+      text[..width - 1]
+    else
+      text[..width - 4] + "..."
+
+  let fitSemanticLine width = function
+    | Some line when line.Prefix.Length >= width ->
+      Some { Prefix = truncate width line.Prefix; Content = "" }
+    | Some line ->
+      let contentWidth = width - line.Prefix.Length
+      Some { line with Content = truncate contentWidth line.Content }
+    | None ->
+      None
+
+  let semanticUnitName = function
+    | Text -> "lines"
+    | Instructions -> "instructions"
+    | Sections -> "section entries"
+    | Bytes -> "bytes"
+
+  let renderSemanticSideBySide
+    (opts: DiffOptions)
+    leftName
+    rightName
+    (left: SemanticLine[])
+    (right: SemanticLine[])
+    changed =
+    let leftChanged, rightChanged = changed
+    let pairs = alignChanges leftChanged rightChanged
+    let rows = pairs |> Array.map Array.singleton
+    let selected = selectRows opts.Context rows
+    let cs = ColoredString()
+    cs.Append(NoColor, $"left : {leftName}{Environment.NewLine}")
+      .Append(NoColor, $"right: {rightName}{Environment.NewLine}")
+      .Append(NoColor, $"mode: {modeName opts.Mode}")
+      .Append(NoColor, Environment.NewLine) |> ignore
+    let mutable skipped = false
+    pairs |> Array.iteri (fun idx pair ->
+      if not selected[idx] then
+        skipped <- true
+      else
+        if skipped then
+          cs.Append(NoColor, $"...{Environment.NewLine}") |> ignore
+          skipped <- false
+        else
+          ()
+        let leftLine =
+          pair.Left
+          |> Option.map (fun lineIdx -> left[lineIdx])
+          |> fitSemanticLine opts.ColumnWidth
+        let rightLine =
+          pair.Right
+          |> Option.map (fun lineIdx -> right[lineIdx])
+          |> fitSemanticLine opts.ColumnWidth
+        appendSemanticCell cs Red pair.Changed leftLine rightLine |> ignore
+        let padding = max 1 (opts.ColumnWidth - semanticCellLength leftLine)
+        cs.Append(NoColor, String(' ', padding) + " | ") |> ignore
+        appendSemanticCell cs Green pair.Changed rightLine leftLine |> ignore
+        cs.Append(NoColor, Environment.NewLine) |> ignore)
+    if opts.UseColor then OutputColored cs else OutputNormal(cs.ToString())
+
   let renderSideBySide
     (opts: DiffOptions)
     leftName
@@ -652,20 +957,55 @@ type DiffAction() =
         cs.Append(NoColor, $"| {rightOffset}{Environment.NewLine}") |> ignore)
     if opts.UseColor then OutputColored cs else OutputNormal(cs.ToString())
 
-  let diff opts bin1 bin2 =
+  let diffBytes opts bin1 bin2 =
     let hdl1, hdl2 = Binary.Handle bin1, Binary.Handle bin2
     let bs1, bs2 = hdl1.File.RawBytes.ToArray(), hdl2.File.RawBytes.ToArray()
-    let changed1, changed2 = compareBytes opts.Algorithm bs1 bs2
+    let changed1, changed2 = compareValues opts.Algorithm bs1 bs2
     let metrics = calculateMetrics bs1.Length bs2.Length changed1 changed2
     let leftName = binaryName "<left>" bin1
     let rightName = binaryName "<right>" bin2
     match opts.Format with
     | Summary ->
-      formatMetrics opts.Algorithm leftName rightName metrics |> OutputNormal
+      formatMetrics opts.Algorithm opts.Mode "bytes" leftName rightName metrics
+      |> OutputNormal
     | Json ->
-      formatJson opts.Algorithm leftName rightName metrics |> OutputNormal
+      formatJson opts.Algorithm opts.Mode "bytes" leftName rightName metrics
+      |> OutputNormal
     | SideBySide ->
       renderSideBySide opts leftName rightName bs1 bs2 changed1 changed2
+
+  let diffSemantic opts bin1 bin2 =
+    let left = semanticLines opts bin1
+    let right = semanticLines opts bin2
+    if opts.Mode = Sections && Array.isEmpty left && Array.isEmpty right then
+      invalidArg (nameof opts.SectionName) "Section was not found."
+    else
+      ()
+    let leftValues = left |> Array.map _.Content
+    let rightValues = right |> Array.map _.Content
+    let changed = compareValues opts.Algorithm leftValues rightValues
+    let leftChanged, rightChanged = changed
+    let metrics =
+      calculateMetrics left.Length right.Length leftChanged rightChanged
+    let leftName = binaryName "<left>" bin1
+    let rightName = binaryName "<right>" bin2
+    let unitName = semanticUnitName opts.Mode
+    match opts.Format with
+    | Summary ->
+      formatMetrics opts.Algorithm opts.Mode unitName leftName rightName metrics
+      |> OutputNormal
+    | Json ->
+      formatJson opts.Algorithm opts.Mode unitName leftName rightName metrics
+      |> OutputNormal
+    | SideBySide ->
+      renderSemanticSideBySide opts leftName rightName left right changed
+
+  let diff opts bin1 bin2 =
+    match opts.Mode with
+    | Bytes -> diffBytes opts bin1 bin2
+    | Text
+    | Instructions
+    | Sections -> diffSemantic opts bin1 bin2
 
   interface IAction with
     member _.ActionID with get() = "diff"
@@ -675,9 +1015,12 @@ type DiffAction() =
     Take in two binaries as input and return a diff string as output.
 
       - myers | histogram: select the diff algorithm (default: myers).
+      - mode=bytes|text|instructions|sections: select comparison semantics.
+      - section=NAME: compare only one section in sections mode.
       - side-by-side | summary | json: select the output format.
       - context=N: show N unchanged rows around each changed row.
       - width=N: show N byte columns per row (default: 16).
+      - column=N: set the semantic output column width (default: 72).
       - no-color: render plain text without terminal colors.
 """
     member _.Transform(args, collection) =
