@@ -12,6 +12,10 @@ future workers so that the policy does not depend on conversation history.
   push to it or open a pull request against it for this research work.
 - Keep the upstream push URL disabled in local clones when possible:
   `disabled://B2R2-org/B2R2`.
+- `main` is the sole development branch. Keep `gh-pages` only for the existing
+  published site. The retired BinDump v0.5 history is preserved by the
+  `archive/bindump-diff-v0.5` tag; do not recreate `master` or the retired
+  legacy branch.
 
 ## Fork-Owned Diff Boundary
 
