@@ -90,14 +90,17 @@ For the enhanced diff, also verify:
 ## Research-Project Submodule
 
 The `ransomware-main` project consumes this fork as a pinned Git submodule at
-`third_party/B2R2`. Treat that checkout as detached and read-only. Develop,
-commit, and push B2R2 changes only from a standalone maintenance clone. Do not
-move or replace the submodule without an explicit user request.
+`third_party/B2R2`. This is also the sole local B2R2 maintenance checkout. For
+routine parent-project work, treat the B2R2 source as read-only. For authorized
+B2R2 maintenance, use this checkout on its local `main` branch; do not create a
+parallel standalone clone. Do not move or replace the submodule without an
+explicit user request.
 
-1. The research project must pin a verified commit from `topcue/B2R2`.
-2. Update and test the B2R2 fork first.
+1. Enter `third_party/B2R2`, switch to `main`, and confirm it matches
+   `origin/main`.
+2. Update and test the B2R2 fork in that checkout first.
 3. Push the verified B2R2 commit only to `origin` (`topcue/B2R2`).
-4. Update only the submodule commit pointer in the research project.
+4. Return to the parent repository and update only its submodule commit pointer.
 5. Record and test the parent-project change before publishing it.
 
 Never point the research submodule directly at an unreviewed upstream commit or
