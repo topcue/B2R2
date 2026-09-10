@@ -25,6 +25,8 @@
 namespace B2R2.RearEnd.Transformer.Tests
 
 open System
+open System.Diagnostics
+open System.IO
 open System.Text
 open System.Text.Json
 open Microsoft.VisualStudio.TestTools.UnitTesting
@@ -51,6 +53,65 @@ type DiffTests() =
     let output = run [ "json" ] left right
     use document = JsonDocument.Parse output
     document.RootElement.GetProperty("equal").GetInt32()
+
+  let summaryMetrics args left right =
+    let output = run ("json" :: args) left right
+    use document = JsonDocument.Parse output
+    let root = document.RootElement
+    let equal = root.GetProperty("equal").GetInt32()
+    let added = root.GetProperty("added").GetInt32()
+    let removed = root.GetProperty("removed").GetInt32()
+    equal, added, removed
+
+  let gitMetrics algorithm left right =
+    let directory =
+      let name = "b2r2-git-diff-" + Guid.NewGuid().ToString()
+      Path.Combine(Path.GetTempPath(), name)
+    Directory.CreateDirectory directory |> ignore
+    let leftPath = Path.Combine(directory, "left.txt")
+    let rightPath = Path.Combine(directory, "right.txt")
+    let asLines bytes =
+      bytes |> Array.map (fun (value: byte) -> value.ToString("X2"))
+    try
+      File.WriteAllLines(leftPath, asLines left)
+      File.WriteAllLines(rightPath, asLines right)
+      let startInfo = ProcessStartInfo("git")
+      startInfo.UseShellExecute <- false
+      startInfo.RedirectStandardOutput <- true
+      startInfo.RedirectStandardError <- true
+      let options =
+        [ "--no-index"
+          "--text"
+          $"--diff-algorithm={algorithm}"
+          "--numstat"
+          "--"
+          leftPath
+          rightPath ]
+      let arguments =
+        if algorithm = "myers" then
+          "diff" :: "--minimal" :: options
+        else
+          "diff" :: options
+      arguments
+      |> List.iter startInfo.ArgumentList.Add
+      use gitProcess = Process.Start startInfo
+      let output = gitProcess.StandardOutput.ReadToEnd()
+      let error = gitProcess.StandardError.ReadToEnd()
+      gitProcess.WaitForExit()
+      let validExitCode =
+        gitProcess.ExitCode = 0 || gitProcess.ExitCode = 1
+      Assert.AreEqual(true, validExitCode, error)
+      if gitProcess.ExitCode = 0 then
+        left.Length, 0, 0
+      else
+        let fields = output.Trim().Split('\t')
+        Assert.AreEqual(true, fields.Length >= 2, output)
+        let added = Int32.Parse fields[0]
+        let removed = Int32.Parse fields[1]
+        let equal = (left.Length + right.Length - added - removed) / 2
+        equal, added, removed
+    finally
+      Directory.Delete(directory, true)
 
   let lcsLength (left: byte[]) (right: byte[]) =
     let lengths = Array2D.zeroCreate (left.Length + 1) (right.Length + 1)
@@ -124,6 +185,46 @@ type DiffTests() =
       let right =
         Array.init (random.Next(0, 9)) (fun _ -> byte (random.Next 4))
       Assert.AreEqual(lcsLength left right, summaryEqual left right)
+
+  [<TestMethod>]
+  member _.``Myers metrics match Git xdiff ground truth``() =
+    let cases =
+      [ [||], [||]
+        [| 1uy |], [||]
+        [| 1uy; 2uy; 1uy |], [| 1uy; 1uy; 2uy |]
+        [| 0uy; 1uy; 0uy; 1uy |], [| 1uy; 0uy; 1uy; 0uy |]
+        [| 1uy; 2uy; 3uy; 4uy |], [| 4uy; 3uy; 2uy; 1uy |] ]
+    for left, right in cases do
+      let expected = gitMetrics "myers" left right
+      let actual = summaryMetrics [] left right
+      Assert.AreEqual(expected, actual)
+
+  [<TestMethod>]
+  member _.``Histogram metrics match Git xdiff samples``() =
+    let random = Random 1
+    for _ = 1 to 40 do
+      let left =
+        Array.init (random.Next(0, 20)) (fun _ -> byte (random.Next 6))
+      let right =
+        Array.init (random.Next(0, 20)) (fun _ -> byte (random.Next 6))
+      let expected = gitMetrics "histogram" left right
+      let actual = summaryMetrics [ "histogram" ] left right
+      Assert.AreEqual(expected, actual)
+
+  [<TestMethod>]
+  member _.``Myers scales across long repeated input``() =
+    let left = Array.create 100000 0x41uy
+    let right = Array.copy left
+    right[50000] <- 0x42uy
+    Assert.AreEqual((99999, 1, 1), summaryMetrics [] left right)
+
+  [<TestMethod>]
+  member _.``Histogram falls back for frequent common values``() =
+    let left = Array.append (Array.create 70 1uy) (Array.create 70 2uy)
+    let right = Array.append (Array.create 70 2uy) (Array.create 70 1uy)
+    let expected = gitMetrics "histogram" left right
+    let actual = summaryMetrics [ "histogram" ] left right
+    Assert.AreEqual(expected, actual)
 
   [<TestMethod>]
   member _.``Text mode compares lines instead of bytes``() =

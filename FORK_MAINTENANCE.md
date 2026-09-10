@@ -45,6 +45,8 @@ expected integration points are:
 
 Tests for the fork-owned diff live in `src/RearEnd/Transformer.Tests`. They must
 verify both the enhanced behavior and the distinct action IDs.
+The pinned Git xdiff oracle, validation scope, and known limits are recorded in
+`src/RearEnd/Transformer/ForkDiff/VALIDATION.md`.
 
 ## Updating From Official B2R2
 

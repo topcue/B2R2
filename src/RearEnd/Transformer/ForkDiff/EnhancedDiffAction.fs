@@ -104,6 +104,17 @@ type Box =
     YOff: int
     YLim: int }
 
+type private HistogramRegion =
+  { LeftStart: int
+    LeftEnd: int
+    RightStart: int
+    RightEnd: int }
+
+type private HistogramMatch =
+  | CommonRegion of HistogramRegion
+  | UseMyers
+  | NoCommon
+
 type DiffData =
   { LineNo: int[]
     LineID: int[]
@@ -160,71 +171,69 @@ type EnhancedDiffAction() =
         invalidArg (nameof args) $"Invalid diff option: {arg}"
     ) DiffOptions.Default
 
-  let rec findUniqId lineNum cnt lines (dict: Dictionary<_, int>) =
-    if lineNum = Array.length lines then
-      dict
-    else
-      let found, _ = dict.TryGetValue lines[lineNum]
-      if not found then
-        dict.Add(lines[lineNum], cnt)
-        findUniqId (lineNum + 1) (cnt + 1) lines dict
+  let findUniqId lines =
+    let identifiers = Dictionary<_, int>()
+    for line in lines do
+      if not (identifiers.ContainsKey line) then
+        identifiers.Add(line, identifiers.Count)
       else
-        findUniqId (lineNum + 1) cnt lines dict
+        ()
+    identifiers
 
-  let rec findChangedLines lineNum rchg lineToId (lines: _[]) =
-    if lineNum = -1 then
-      Array.ofList rchg
-    else
-      let found, _ = (lineToId: Dictionary<_, _>).TryGetValue lines[lineNum]
-      if found then
-        findChangedLines (lineNum - 1) (false :: rchg) lineToId lines
+  let findChangedLines (lineToId: Dictionary<_, _>) lines =
+    lines |> Array.map (lineToId.ContainsKey >> not)
+
+  let matchIndices
+    (rchg: bool[])
+    (lineToId: Dictionary<_, int>)
+    (lines: 'T[]) =
+    let lineIDs = ResizeArray<int>(lines.Length)
+    let indices = ResizeArray<int>(lines.Length)
+    for idx = 0 to lines.Length - 1 do
+      if not rchg[idx] then
+        lineIDs.Add lineToId[lines[idx]]
+        indices.Add idx
       else
-        findChangedLines (lineNum - 1) (true :: rchg) lineToId lines
+        ()
+    lineIDs.ToArray(), indices.ToArray()
 
-  let rec matchIndices n
-                       lineID
-                       rindex
-                       (rchg: bool[])
-                       (lineToId: Dictionary<_, int>)
-                       lines =
-    if n = Array.length lines then
-      lineID, rindex
-    elif rchg[n] then
-      matchIndices (n + 1) lineID rindex rchg lineToId lines
-    else
-      let lineID' = Array.append lineID [| lineToId[lines[n]] |]
-      let rindex' = Array.append rindex [| n |]
-      matchIndices (n + 1) lineID' rindex' rchg lineToId lines
+  let commonPrefix (left: int[]) (right: int[]) =
+    let limit = min left.Length right.Length
+    let mutable length = 0
+    while length < limit && left[length] = right[length] do
+      length <- length + 1
+    length
 
-  let rec findDiffstart n idA idB =
-    if n >= min (Array.length idA) (Array.length idB) then 0
-    elif idA[n] <> idB[n] then n
-    else findDiffstart (n + 1) idA idB
+  let commonSuffix prefix (left: int[]) (right: int[]) =
+    let limit = min left.Length right.Length
+    let mutable length = 0
+    while prefix + length < limit
+          && left[left.Length - 1 - length]
+             = right[right.Length - 1 - length] do
+      length <- length + 1
+    length
 
-  let rec findDiffend n idA idB =
-    if n >= min (Array.length idA) (Array.length idB) then
-      1
-    elif idA[(Array.length idA - 1) - n] <> idB[(Array.length idB - 1) - n] then
-      n
-    else
-      findDiffend (n + 1) idA idB
+  let slice start count (values: 'T[]) =
+    if count = 0 then [||] else values[start..start + count - 1]
 
   let trim idA idB (lnumA: int[]) (lnumB: int[]) =
-    let diffStart = findDiffstart 0 idA idB
-    let diffEnd = findDiffend 0 idA idB
-    let idA' = idA[diffStart..(Array.length idA - 1 - diffEnd)]
-    let idB' = idB[diffStart..(Array.length idB - 1 - diffEnd)]
-    let lnumA' = lnumA[diffStart..(Array.length lnumA - 1 - diffEnd)]
-    let lnumB' = lnumB[diffStart..(Array.length lnumB - 1 - diffEnd)]
+    let diffStart = commonPrefix idA idB
+    let diffEnd = commonSuffix diffStart idA idB
+    let countA = idA.Length - diffStart - diffEnd
+    let countB = idB.Length - diffStart - diffEnd
+    let idA' = slice diffStart countA idA
+    let idB' = slice diffStart countB idB
+    let lnumA' = slice diffStart countA lnumA
+    let lnumB' = slice diffStart countB lnumB
     idA', idB', lnumA', lnumB'
 
   let prepareMyers linesA linesB =
-    let lineToIdA = Dictionary<_, int>() |> findUniqId 0 0 linesA
-    let lineToIdB = Dictionary<_, int>() |> findUniqId 0 0 linesB
-    let clnumA = findChangedLines (Array.length linesA - 1) [] lineToIdB linesA
-    let clnumB = findChangedLines (Array.length linesB - 1) [] lineToIdA linesB
-    let idA, lnumA = matchIndices 0 [||] [||] clnumA lineToIdA linesA
-    let idB, lnumB = matchIndices 0 [||] [||] clnumB lineToIdA linesB
+    let lineToIdA = findUniqId linesA
+    let lineToIdB = findUniqId linesB
+    let clnumA = findChangedLines lineToIdB linesA
+    let clnumB = findChangedLines lineToIdA linesB
+    let idA, lnumA = matchIndices clnumA lineToIdA linesA
+    let idB, lnumB = matchIndices clnumB lineToIdA linesB
     let idA, idB, lnumA, lnumB = trim idA idB lnumA lnumB
     let lnumA =
       { LineNo = lnumA
@@ -351,25 +360,33 @@ type EnhancedDiffAction() =
     let box' = walkThroughDiagonalSW idA idB box.XOff box.XLim box.YOff box.YLim
     walkThroughDiagonalNE idA idB box'.XOff box'.XLim box'.YOff box'.YLim
 
-  let rec cmpChangedLines kvd dd1 dd2 box =
-    (* Shrink the box by walking through each diagonal snake (SW and NE). *)
-    let box = shrinkBox dd1.LineID dd2.LineID box
-    if box.XOff = box.XLim then
-      markChangedLines dd2 box.YOff box.YLim
-    elif box.YOff = box.YLim then
-      markChangedLines dd1 box.XOff box.XLim
-    else
-      (* Divide *)
-      let fmid, bmid = box.XOff - box.YOff, box.XLim - box.YLim
-      let isOdd = (fmid - bmid) % 2 <> 0
-      kvd.XOffsets[kvd.IdxForward + fmid] <- box.XOff
-      kvd.XOffsets[kvd.IdxBackward + bmid] <- box.XLim
-      let spl = splitBox kvd dd1.LineID dd2.LineID box fmid fmid bmid bmid isOdd
-      (* Conquer *)
-      { XOff = box.XOff; XLim = spl.X; YOff = box.YOff; YLim = spl.Y }
-      |> cmpChangedLines kvd dd1 dd2
-      { XOff = spl.X; XLim = box.XLim; YOff = spl.Y; YLim = box.YLim }
-      |> cmpChangedLines kvd dd1 dd2
+  let cmpChangedLines kvd dd1 dd2 initialBox =
+    let pending = Stack<Box>()
+    pending.Push initialBox
+    while pending.Count > 0 do
+      let box = pending.Pop() |> shrinkBox dd1.LineID dd2.LineID
+      if box.XOff = box.XLim then
+        markChangedLines dd2 box.YOff box.YLim
+      elif box.YOff = box.YLim then
+        markChangedLines dd1 box.XOff box.XLim
+      else
+        let fmid = box.XOff - box.YOff
+        let bmid = box.XLim - box.YLim
+        let isOdd = (fmid - bmid) % 2 <> 0
+        kvd.XOffsets[kvd.IdxForward + fmid] <- box.XOff
+        kvd.XOffsets[kvd.IdxBackward + bmid] <- box.XLim
+        let split =
+          splitBox kvd dd1.LineID dd2.LineID box fmid fmid bmid bmid isOdd
+        pending.Push
+          { XOff = split.X
+            XLim = box.XLim
+            YOff = split.Y
+            YLim = box.YLim }
+        pending.Push
+          { XOff = box.XOff
+            XLim = split.X
+            YOff = box.YOff
+            YLim = split.Y }
 
   let myersDiff dd1 dd2 =
     let nDiags = dd1.Len + dd2.Len + 3
@@ -407,6 +424,19 @@ type EnhancedDiffAction() =
       | false, _ -> counts[value] <- 1
     counts
 
+  let indexValues (values: 'T[]) startIdx endIdx =
+    let positions = Dictionary<'T, ResizeArray<int>>()
+    for idx = startIdx to endIdx - 1 do
+      let value = values[idx]
+      match positions.TryGetValue value with
+      | true, indices ->
+        indices.Add idx
+      | false, _ ->
+        let indices = ResizeArray<int>()
+        indices.Add idx
+        positions.Add(value, indices)
+    positions
+
   let markRange (changed: bool[]) startIdx endIdx =
     for idx = startIdx to endIdx - 1 do
       changed[idx] <- true
@@ -418,7 +448,7 @@ type EnhancedDiffAction() =
       else
         ())
 
-  let findRareAnchor
+  let findHistogramMatch
     (left: 'T[])
     (right: 'T[])
     leftStart
@@ -426,47 +456,84 @@ type EnhancedDiffAction() =
     rightStart
     rightEnd =
     let leftCounts = countValues left leftStart leftEnd
-    let rightCounts = countValues right rightStart rightEnd
+    let leftPositions = indexValues left leftStart leftEnd
     let mutable best = None
-    let mutable bestScore = Int32.MaxValue
-    let mutable bestDistance = Int32.MaxValue
-    for leftIdx = leftStart to leftEnd - 1 do
-      let value = left[leftIdx]
-      match rightCounts.TryGetValue value with
-      | true, rightCount ->
-        let score = max leftCounts[value] rightCount
-        if score <= 64 && score <= bestScore then
-          for rightIdx = rightStart to rightEnd - 1 do
-            if right[rightIdx] = value then
-              let leftOffset = leftIdx - leftStart
-              let rightOffset = rightIdx - rightStart
-              let distance = abs (leftOffset - rightOffset)
-              if score < bestScore || distance < bestDistance then
-                best <- Some(leftIdx, rightIdx)
-                bestScore <- score
-                bestDistance <- distance
-              else
-                ()
+    let mutable bestCount = 65
+    let mutable hasCommon = false
+    let mutable rightIdx = rightStart
+    while rightIdx < rightEnd do
+      let value = right[rightIdx]
+      match leftPositions.TryGetValue value with
+      | false, _ ->
+        rightIdx <- rightIdx + 1
+      | true, positions ->
+        hasCommon <- true
+        if leftCounts[value] > bestCount then
+          rightIdx <- rightIdx + 1
+        else
+          let mutable nextRight = rightIdx + 1
+          let mutable positionIdx = 0
+          while positionIdx < positions.Count do
+            let mutable regionLeftStart = positions[positionIdx]
+            let mutable regionRightStart = rightIdx
+            let mutable regionLeftEnd = regionLeftStart
+            let mutable regionRightEnd = regionRightStart
+            let mutable regionCount = leftCounts[value]
+            while leftStart < regionLeftStart
+                  && rightStart < regionRightStart
+                  && left[regionLeftStart - 1]
+                     = right[regionRightStart - 1] do
+              regionLeftStart <- regionLeftStart - 1
+              regionRightStart <- regionRightStart - 1
+              regionCount <- min regionCount leftCounts[left[regionLeftStart]]
+            while regionLeftEnd + 1 < leftEnd
+                  && regionRightEnd + 1 < rightEnd
+                  && left[regionLeftEnd + 1] = right[regionRightEnd + 1] do
+              regionLeftEnd <- regionLeftEnd + 1
+              regionRightEnd <- regionRightEnd + 1
+              regionCount <- min regionCount leftCounts[left[regionLeftEnd]]
+            nextRight <- max nextRight (regionRightEnd + 1)
+            let bestLength =
+              best
+              |> Option.map (fun region ->
+                region.LeftEnd - region.LeftStart)
+              |> Option.defaultValue -1
+            let regionLength = regionLeftEnd - regionLeftStart
+            if bestLength < regionLength || regionCount < bestCount then
+              best <-
+                Some
+                  { LeftStart = regionLeftStart
+                    LeftEnd = regionLeftEnd
+                    RightStart = regionRightStart
+                    RightEnd = regionRightEnd }
+              bestCount <- regionCount
             else
               ()
-        else
-          ()
-      | false, _ ->
-        ()
-    best
+            positionIdx <- positionIdx + 1
+            while positionIdx < positions.Count
+                  && positions[positionIdx] <= regionLeftEnd do
+              positionIdx <- positionIdx + 1
+          rightIdx <- nextRight
+    match best, hasCommon with
+    | Some region, _ -> CommonRegion region
+    | None, true -> UseMyers
+    | None, false -> NoCommon
 
   let compareHistogram (left: 'T[]) (right: 'T[]) =
     let leftChanged = Array.create left.Length false
     let rightChanged = Array.create right.Length false
-    let rec compareRange leftStart leftEnd rightStart rightEnd =
-      let mutable leftStart = leftStart
-      let mutable rightStart = rightStart
-      while leftStart < leftEnd && rightStart < rightEnd
+    let pending = Stack<int * int * int * int>()
+    pending.Push(0, left.Length, 0, right.Length)
+    while pending.Count > 0 do
+      let leftStart0, leftEnd0, rightStart0, rightEnd0 = pending.Pop()
+      let mutable leftStart = leftStart0
+      let mutable rightStart = rightStart0
+      while leftStart < leftEnd0 && rightStart < rightEnd0
             && left[leftStart] = right[rightStart] do
         leftStart <- leftStart + 1
         rightStart <- rightStart + 1
-      let mutable leftEnd = leftEnd
-      let mutable rightEnd = rightEnd
+      let mutable leftEnd = leftEnd0
+      let mutable rightEnd = rightEnd0
       while leftStart < leftEnd && rightStart < rightEnd
             && left[leftEnd - 1] = right[rightEnd - 1] do
         leftEnd <- leftEnd - 1
@@ -476,20 +543,27 @@ type EnhancedDiffAction() =
       elif rightStart = rightEnd then
         markRange leftChanged leftStart leftEnd
       else
-        let anchor =
-          findRareAnchor left right leftStart leftEnd rightStart rightEnd
-        match anchor with
-        | Some(leftAnchor, rightAnchor) ->
-          compareRange leftStart leftAnchor rightStart rightAnchor
-          compareRange (leftAnchor + 1) leftEnd (rightAnchor + 1) rightEnd
-        | None ->
+        let histogramMatch =
+          findHistogramMatch left right leftStart leftEnd rightStart rightEnd
+        match histogramMatch with
+        | CommonRegion region ->
+          pending.Push
+            (region.LeftEnd + 1,
+             leftEnd,
+             region.RightEnd + 1,
+             rightEnd)
+          pending.Push
+            (leftStart, region.LeftStart, rightStart, region.RightStart)
+        | UseMyers ->
           let leftSlice = left[leftStart..leftEnd - 1]
           let rightSlice = right[rightStart..rightEnd - 1]
           let sliceLeftChanged, sliceRightChanged =
             compareMyers leftSlice rightSlice
           copyChanged leftChanged leftStart sliceLeftChanged
           copyChanged rightChanged rightStart sliceRightChanged
-    compareRange 0 left.Length 0 right.Length
+        | NoCommon ->
+          markRange leftChanged leftStart leftEnd
+          markRange rightChanged rightStart rightEnd
     leftChanged, rightChanged
 
   let compareValues
