@@ -87,14 +87,16 @@ For the enhanced diff, also verify:
 - ISA and section selection;
 - simultaneous registration of `diff` and `legacy-diff`.
 
-## Future Research-Project Submodule
+## Research-Project Submodule
 
-The research project will add this fork as a Git submodule later. Do not add or
-move that submodule until the user requests it. When it exists:
+The `ransomware-main` project consumes this fork as a pinned Git submodule at
+`third_party/B2R2`. Treat that checkout as detached and read-only. Develop,
+commit, and push B2R2 changes only from a standalone maintenance clone. Do not
+move or replace the submodule without an explicit user request.
 
 1. The research project must pin a verified commit from `topcue/B2R2`.
 2. Update and test the B2R2 fork first.
-3. Push the verified B2R2 commit to `origin`.
+3. Push the verified B2R2 commit only to `origin` (`topcue/B2R2`).
 4. Update only the submodule commit pointer in the research project.
 5. Record and test the parent-project change before publishing it.
 
