@@ -4,6 +4,13 @@ Guidance for AI coding agents working in the B2R2 repository. Humans should read
 [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md) first; this file
 distills the parts an agent must not get wrong.
 
+## Personal-fork publishing boundary
+
+This checkout belongs to the `topcue/B2R2` personal fork. Treat
+`B2R2-org/B2R2` as read-only upstream: never push to it, open a pull request
+against it, or otherwise publish changes there. Keep all fork-specific changes
+and branches in `topcue/B2R2` only.
+
 ## Verifying changes (run after every change)
 
 This is a test-driven project: everything is tested. After finishing any change,
