@@ -56,3 +56,8 @@ The 2026-09-10 audit found and corrected these issues:
 
 The current implementation preallocates its filtered inputs, indexes Histogram
 positions, expands candidate common regions, and uses explicit work stacks.
+
+The retired BinDump implementation is not compiled or used by `diff`.
+`legacy-diff` is only the separately registered official B2R2 action; it is not
+a compatibility path for the retired fork algorithm and is outside the
+performance contract described in this document.

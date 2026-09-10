@@ -29,8 +29,15 @@ src/RearEnd/Transformer/ForkDiff/
 The public action IDs have distinct purposes:
 
 - `diff` selects `ForkDiff.EnhancedDiffAction`.
-- `legacy-diff` preserves the official B2R2 `DiffAction` for comparison and
-  compatibility.
+- `legacy-diff` exposes the current official B2R2 `DiffAction` as a separate
+  comparison command. It is not the retired BinDump implementation, and its
+  behavior or performance is not part of the enhanced `diff` contract.
+
+The retired fork implementation is not retained in the active code path. In
+particular, `diff` must not reintroduce its quadratic input preparation,
+input-dependent recursion, repeated Histogram rescans, or single-token
+Histogram anchoring. Its historical source remains reachable only through the
+archive tag documented above.
 
 Do not move the enhanced implementation back into the official
 `Transformer/DiffAction.fs` or `Transformer/Program.fs`. Keep changes to
@@ -79,10 +86,10 @@ dotnet fslint src --strict
 dotnet test
 ```
 
-The Windows checkout may report pre-existing CRLF lint failures in unchanged
-upstream files. Do not silently treat new warnings as part of that baseline.
-Confirm that every file changed by the fork is LF, passes the applicable lint
-rules, and passes `git diff --check`.
+The validated Windows checkout passes strict lint. Treat any future CRLF or
+lint failure as a regression rather than establishing a new baseline. Confirm
+that every file changed by the fork is LF, passes the applicable lint rules,
+and passes `git diff --check`.
 
 For the enhanced diff, also verify:
 
