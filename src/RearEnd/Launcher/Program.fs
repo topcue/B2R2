@@ -72,6 +72,14 @@ let private asmHelp = """
   $ b2r2 asm --help
 """
 
+/// What `b2r2 diff` does, as the usage text puts it.
+let private diffHelp = """
+  This compares two binary files with Myers or histogram diff and can
+  produce side-by-side, summary, or JSON output. To learn more, type:
+
+  $ b2r2 diff --help
+"""
+
 /// Every app the launcher can invoke: the name it is asked for, the longer
 /// name it also answers to, and what it does.
 let private apps =
@@ -79,7 +87,8 @@ let private apps =
     "disasm", Some "bindisasm", disasmHelp
     "explore", Some "binexplore", exploreHelp
     "repl", None, replHelp
-    "asm", Some "assembler", asmHelp ]
+    "asm", Some "assembler", asmHelp
+    "diff", None, diffHelp ]
 
 /// One entry in the list of apps, named and then described.
 let private printApp (name, alias, description) =
@@ -133,6 +142,7 @@ let handleCommands (cmd: string) (rest: string[]) =
   | "binexplore" | "explore" -> BinExplore.Program.main rest
   | "repl" -> Repl.Program.main rest
   | "assembler" | "asm" -> Assembler.Program.main rest
+  | "diff" -> Transformer.Program.diffMain rest
   | _ -> Terminator.futureFeature ()
 
 [<EntryPoint>]

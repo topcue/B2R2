@@ -28,6 +28,7 @@ open System
 open System.IO
 open System.Reflection
 open B2R2
+open B2R2.FrontEnd
 open B2R2.RearEnd.Utils
 
 let private usage = $"""[Usage]
@@ -174,6 +175,74 @@ let private parseActions args actionMap =
                |> Array.concat }
   ) { Values = [| () |] }
   |> autoPrint actionMap
+
+let private diffUsage = """[Usage]
+b2r2 diff [options] <left file> <right file>
+
+[Options]
+--algorithm <myers|histogram>  Select the diff algorithm (default: myers).
+--format <side-by-side|summary|json>
+                               Select the output format.
+--context <rows>               Show unchanged rows around changes.
+--width <bytes>                Set byte columns per row (default: 16).
+--no-color                     Disable colored output.
+"""
+
+let private parseDiffArgs argv =
+  let rec loop paths options = function
+    | [] -> List.rev paths, List.rev options
+    | ("--help" | "-h") :: _ ->
+      printsn diffUsage
+      exit 0
+    | "--algorithm" :: value :: rest ->
+      loop paths (value :: options) rest
+    | "--format" :: value :: rest ->
+      loop paths (value :: options) rest
+    | "--context" :: value :: rest ->
+      loop paths ($"context={value}" :: options) rest
+    | "--width" :: value :: rest ->
+      loop paths ($"width={value}" :: options) rest
+    | "--no-color" :: rest ->
+      loop paths ("no-color" :: options) rest
+    | option :: rest when option.StartsWith("--algorithm=") ->
+      loop paths (option[12..] :: options) rest
+    | option :: rest when option.StartsWith("--format=") ->
+      loop paths (option[9..] :: options) rest
+    | option :: rest when option.StartsWith("--context=") ->
+      loop paths (option[2..] :: options) rest
+    | option :: rest when option.StartsWith("--width=") ->
+      loop paths (option[2..] :: options) rest
+    | option :: _ when option.StartsWith('-') ->
+      invalidArg (nameof argv) $"Unknown diff option: {option}"
+    | path :: rest -> loop (path :: paths) options rest
+  loop [] [] (List.ofArray argv)
+
+let private loadBinary path =
+  if not (File.Exists path) then invalidArg (nameof path) $"File not found: {path}"
+  lazy BinHandle.LoadFile(path, ISA Architecture.Intel, None)
+  |> Binary.PlainInit
+
+let diffMain argv =
+  try
+    match parseDiffArgs argv with
+    | [ left; right ], options ->
+      let action = DiffAction() :> IAction
+      let input =
+        { Values = [| box (loadBinary left); box (loadBinary right) |] }
+      let output = action.Transform(options, input).Values[0] :?> OutString
+      printon output
+      0
+    | _ ->
+      eprintsn "Diff requires exactly two file paths."
+      eprintsn diffUsage
+      1
+  with
+  | :? ArgumentException as e ->
+    eprintsn e.Message
+    1
+  | e ->
+    eprintsn $"diff: {e.Message}"
+    1
 
 [<EntryPoint>]
 let main argv =
