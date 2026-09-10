@@ -11,6 +11,11 @@ This checkout belongs to the `topcue/B2R2` personal fork. Treat
 against it, or otherwise publish changes there. Keep all fork-specific changes
 and branches in `topcue/B2R2` only.
 
+Before maintaining this fork or synchronizing official B2R2 updates, read and
+follow [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md). It records the fork-owned
+code boundary, update workflow, verification requirements, and future research
+submodule policy.
+
 ## Verifying changes (run after every change)
 
 This is a test-driven project: everything is tested. After finishing any change,
