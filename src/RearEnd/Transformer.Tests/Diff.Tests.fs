@@ -31,6 +31,7 @@ open Microsoft.VisualStudio.TestTools.UnitTesting
 open B2R2
 open B2R2.FrontEnd
 open B2R2.RearEnd.Transformer
+open B2R2.RearEnd.Transformer.ForkDiff
 
 [<TestClass>]
 type DiffTests() =
@@ -39,7 +40,7 @@ type DiffTests() =
     |> Binary.PlainInit
 
   let run args left right =
-    let action = DiffAction() :> IAction
+    let action = EnhancedDiffAction() :> IAction
     let input =
       { Values = [| box (makeBinary left); box (makeBinary right) |] }
     let result = action.Transform(args, input)
@@ -62,6 +63,13 @@ type DiffTests() =
             max lengths[leftIdx - 1, rightIdx]
                 lengths[leftIdx, rightIdx - 1]
     lengths[left.Length, right.Length]
+
+  [<TestMethod>]
+  member _.``Fork diff and upstream diff have distinct action IDs``() =
+    let enhanced = EnhancedDiffAction() :> IAction
+    let upstream = DiffAction() :> IAction
+    Assert.AreEqual("diff", enhanced.ActionID)
+    Assert.AreEqual("legacy-diff", upstream.ActionID)
 
   [<TestMethod>]
   member _.``Summary reports edit metrics``() =

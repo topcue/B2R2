@@ -142,7 +142,7 @@ let handleCommands (cmd: string) (rest: string[]) =
   | "binexplore" | "explore" -> BinExplore.Program.main rest
   | "repl" -> Repl.Program.main rest
   | "assembler" | "asm" -> Assembler.Program.main rest
-  | "diff" -> Transformer.Program.diffMain rest
+  | "diff" -> Transformer.ForkDiff.DiffCommand.run rest
   | _ -> Terminator.futureFeature ()
 
 [<EntryPoint>]
